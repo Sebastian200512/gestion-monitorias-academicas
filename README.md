@@ -9,13 +9,15 @@ Este proyecto consiste en el desarrollo de una aplicación web destinada a optim
 Esta plataforma integral incluye funcionalidades clave segmentadas según los perfiles de usuario:
 
 * **Estudiantes:**
-    * Visualización de disponibilidad de monitores por materia.
-    * Agendamiento de citas en pasos intuitivos.
-    * Reprogramación o cancelación de citas.
-    * Recepción de recordatorios automáticos.
+    * Visualización de disponibilidad de monitores.
+    * Agendar monitorías paso a paso (materia, monitor, horario, confirmación).
+    *	Visualizar sus sesiones agendadas.
+    *	Cancelar o reprogramar citas.
+    *	Recibir recordatorios de monitorías programadas.
+
 
 * **Monitores:**
-    * Registro de disponibilidad semanal por franjas horarias.
+    * Registrar disponibilidad horaria.
     * Visualización de citas programadas.
     * Registro de asistencia.
     * Consulta de horas trabajadas acumuladas.
@@ -24,7 +26,6 @@ Esta plataforma integral incluye funcionalidades clave segmentadas según los pe
     * Creación, edición y eliminación de perfiles de monitores.
     * Gestión completa de agendas y citas del sistema.
     * Validación de sesiones realizadas.
-    * Generación de reportes y exportación de datos.
 
 ---
 
@@ -113,13 +114,10 @@ DB_NAME=monitorias_pac
 
 ## Tecnologías Utilizadas
 
-- **Frontend:** Next.js, Tailwind CSS
-- **Backend:** Node.js, Express
+- **Frontend:** Next.js
+- **Backend:** Node.js + Express
 - **Base de datos:** MySQL
-- **Autenticación:** JWT, bcrypt
-- **Prototipado:** Figma
-- **Control de versiones:** Git, GitHub
-- **Pruebas:** Postman
+- **Control de versiones:** GitHub
 
 ---
 
@@ -127,14 +125,13 @@ DB_NAME=monitorias_pac
 
 Este es un proyecto académico desarrollado por:
 
-- **Cristhian Andres Avalo Valencia**
+- **DAVID RICARDO RIVERA ARBELAEZ**
 - **Sebastián Patiño Pineda**
-
-Universidad Católica de Pereira – Tecnología en Desarrollo de Software
+- **Cristhian Andres Avalo Valencia**
 
 ---
 
 ## Licencia
 
-Este proyecto fue desarrollado con fines académicos. Todos los derechos reservados a sus autores. No está autorizado para uso comercial sin el consentimiento expreso de sus creadores.
+Todos los derechos reservados. Este proyecto es para fines académicos y no se permite su uso o distribución comercial sin autorización expresa.
 
