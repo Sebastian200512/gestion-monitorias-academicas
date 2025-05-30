@@ -61,7 +61,7 @@ Este diagrama representa el recorrido lógico que realiza un usuario dentro del 
 
 
 #### Diagrama de Arquitectura por Capas
-Representa la estructura en capas del software, mostrando la separación entre la interfaz de usuario, la lógica del sistema y la gestión de datos. Favorece la mantenibilidad y escalabilidad del sistema.
+Representa la estructura en capas del software, mostrando la separación entre la interfaz de usuario, la lógica del sistema y la gestión de datos, Favorece la mantenibilidad y escalabilidad del sistema.
 ![Arquitectura en Capas](Docs/Architecture/diagramacapas.png)
 
 
