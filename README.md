@@ -30,21 +30,22 @@ Esta plataforma integral incluye funcionalidades clave segmentadas según los pe
 ---
 
 ### Vistas de la Interfaz de Usuario (Mockups Visuales)
+A continuación, se presentan capturas de pantalla de las interfaces clave de la aplicación, mostrando el diseño y la interacción propuesta:
 
 #### Vista de Inicio de Sesion
-![inicio sesion](docs/screenshots/inicio-de-sesion.png)
+![inicio sesion](Docs/Screenshots/inicio-de-sesion.png)
 
 #### Vista de Pantalla Principal de Estudiante
-![Panel Estudiante](docs/screenshots/pantalla-principal-estudiante.png)
+![Panel Estudiante](Docs/Screenshots/pantalla-principal-estudiante.png)
 
 #### Vista de Agendamiento de Monitoria
-![Agendamiento Paso a Paso](docs/screenshots/agendamiento-monitoria.png)
+![Agendamiento Paso a Paso](Docs/Screenshots/agendamiento-monitoria.png)
 
 #### Vista de Pantalla Principal de Monitor
-![Panel Monitor](docs/screenshots/pantalla-principal-monitor.png)
+![Panel Monitor](Docs/Screenshots/pantalla-principal-monitor.png)
 
 #### Vista de Registro de Disponibilidad
-![Registro de Disponibilidad](docs/screenshots/registro-disponibilidad.png)
+![Registro de Disponibilidad](Docs/Screenshots/registro-disponibilidad.png)
 
 
 ---
