@@ -68,16 +68,12 @@ Representa la estructura en capas del software, mostrando la separación entre l
 ---
 
 ## Estructura de la Base de Datos
-El esquema completo de la base de datos se encuentra en `docs/database/schema.sql`. Incluye entidades como usuarios, sesiones, disponibilidad, validaciones y reportes.
-
-#### Modelo Entidad-Relación (MER)
-Describe las principales entidades del sistema y sus relaciones. Es útil para comprender la lógica del modelo de datos a un nivel conceptual.
-![MER](docs/database/modelo-er.png)
+El esquema completo de la base de datos se encuentra en `Docs/Database/schema.sql`.
 
 
 #### Modelo Relacional
 Detalle físico de la estructura de la base de datos: incluye tablas, columnas, claves primarias y foráneas, tipos de datos y relaciones entre ellas.
-![Modelo Relacional](docs/database/modelo-relacional.png)
+![Modelo Relacional](Docs/Database/modelo-relacional.png)
 
 ---
 
@@ -88,7 +84,7 @@ Detalle físico de la estructura de la base de datos: incluye tablas, columnas, 
 * /app/: Contiene todo el código de la aplicación web.
 * `/Docs/`: Documentación del proyecto, incluyendo:
     * `/Docs/Architecture/`: Diagramas de arquitectura y flujo (ej. `diagrama-general-aplicacion.png`, `diagramacapas.png`).
-    * `/Docs/Database/`: Esquema de la base de datos (`schema.sql`, `mer.png`, `modelo-relacional.png`).
+    * `/Docs/Database/`: Esquema de la base de datos (`schema.sql`, `modelo-relacional.png`).
 * `.gitignore`: Para excluir archivos no deseados (como `node_modules/` o `.env`).
 * `README.md`: Este archivo de descripción del proyecto.
 
@@ -112,7 +108,7 @@ npm run dev
 ### Configurar Base de Datos
 
 - Crear una base de datos `monitorias_pac` en MySQL.
-- Importar el archivo `schema.sql` ubicado en `/database/`.
+- Importar el archivo `schema.sql` ubicado en `/Database/`.
 
 ### Archivo `.env`
 
