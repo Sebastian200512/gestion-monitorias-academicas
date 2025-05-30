@@ -96,7 +96,7 @@ Detalle físico de la estructura de la base de datos: incluye tablas, columnas, 
 
 ```bash
 # Clonar el repositorio
-[https://github.com/usuario/plataforma-monitorias-pac.git](https://github.com/Sebastian200512/gestion-monitorias-academicas.git)
+https://github.com/Sebastian200512/gestion-monitorias-academicas.git
 
 # Backend
 cd backend
