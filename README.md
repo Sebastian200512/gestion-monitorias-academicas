@@ -34,7 +34,7 @@ A continuación, se presentan capturas de pantalla de las interfaces clave de la
 
 #### Vista de Inicio de Sesion
 ![inicio sesion](Docs/Screenshots/inicio-de-sesion.png)
-Permite a un usuario  acceder a su panel personalizado y funcionalidades de la aplicación.
+Permite a un usuario acceder a su panel personalizado y funcionalidades de la aplicación.
 
 #### Vista de Pantalla Principal de Estudiante
 ![Panel Estudiante](Docs/Screenshots/pantalla-principal-estudiante.png)
@@ -96,7 +96,7 @@ Detalle físico de la estructura de la base de datos: incluye tablas, columnas, 
 
 ```bash
 # Clonar el repositorio
-https://github.com/usuario/plataforma-monitorias-pac.git
+[https://github.com/usuario/plataforma-monitorias-pac.git](https://github.com/Sebastian200512/gestion-monitorias-academicas.git)
 
 # Backend
 cd backend
