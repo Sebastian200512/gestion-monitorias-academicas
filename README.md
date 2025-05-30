@@ -31,20 +31,21 @@ Esta plataforma integral incluye funcionalidades clave segmentadas según los pe
 
 ### Vistas de la Interfaz de Usuario (Mockups Visuales)
 
-#### Panel del Estudiante
-![Panel Estudiante](docs/screenshots/panel-estudiante.png)
+#### Vista de Inicio de Sesion
+![inicio sesion](docs/screenshots/inicio-de-sesion.png)
 
-#### Flujo de Agendamiento
-![Agendamiento Paso a Paso](docs/screenshots/agendar-monitoria.png)
+#### Vista de Pantalla Principal de Estudiante
+![Panel Estudiante](docs/screenshots/pantalla-principal-estudiante.png)
 
-#### Panel del Monitor
-![Panel Monitor](docs/screenshots/panel-monitor.png)
+#### Vista de Agendamiento de Monitoria
+![Agendamiento Paso a Paso](docs/screenshots/agendamiento-monitoria.png)
 
-#### Registro de Disponibilidad
+#### Vista de Pantalla Principal de Monitor
+![Panel Monitor](docs/screenshots/pantalla-principal-monitor.png)
+
+#### Vista de Registro de Disponibilidad
 ![Registro de Disponibilidad](docs/screenshots/registro-disponibilidad.png)
 
-#### Panel Administrativo
-![Panel Admin](docs/screenshots/panel-admin.png)
 
 ---
 
