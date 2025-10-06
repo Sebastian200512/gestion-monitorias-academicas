@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model admins {
+  id              Int      @id @default(autoincrement())
+  codigo          String   @unique
+  nombre_completo String
+  correo          String   @unique
+  contrasena      String
+  cargo           String?
+  telefono        String?
+  activo          Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  asistencias asistencias[]
+  usuario_rol usuario_rol[] @relation("RolAsignadoPorAdmin")
+}
+
+model usuarios {
+  id              Int      @id @default(autoincrement())
+  codigo          String   @unique
+  nombre_completo String
+  correo          String   @unique
+  contrasena      String
+  programa        String?
+  semestre        Int?
+  activo          Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  roles            usuario_rol[]
+  disponibilidades disponibilidades[]
+  citas_estudiante citas[] @relation("CitasDelEstudiante")
+  citas_monitor    citas[] @relation("CitasDelMonitor")
+}
+
+model roles {
+  id     Int    @id @default(autoincrement())
+  nombre String @unique
+  users  usuario_rol[]
+}
+
+model usuario_rol {
+  usuario_id        Int
+  rol_id            Int
+  asignado_en       DateTime @default(now())
+  asignado_por_admin Int?
+
+  usuario usuarios @relation(fields: [usuario_id], references: [id])
+  rol     roles    @relation(fields: [rol_id], references: [id])
+  admin   admins?  @relation("RolAsignadoPorAdmin", fields: [asignado_por_admin], references: [id])
+
+  @@id([usuario_id, rol_id])
+}
+
+model materias {
+  id       Int     @id @default(autoincrement())
+  nombre   String
+  codigo   String  @unique
+  creditos Int?
+  estado   MateriaEstado @default(Activo)
+
+  disponibilidades disponibilidades[]
+  citas            citas[]
+}
+
+enum MateriaEstado {
+  Activo
+  Inactivo
+}
+
+model disponibilidades {
+  id              Int      @id @default(autoincrement())
+  monitor_id      Int
+  materia_id      Int
+  fecha           DateTime
+  hora_inicio     DateTime
+  hora_fin        DateTime
+  ubicacion       String?
+  max_estudiantes Int      @default(1)
+  estado          DisponEstado @default(Activa)
+  created_at      DateTime @default(now())
+
+  monitor usuarios @relation(fields: [monitor_id], references: [id])
+  materia materias @relation(fields: [materia_id], references: [id])
+  citas   citas[]
+
+  @@index([monitor_id, fecha])
+}
+
+enum DisponEstado {
+  Activa
+  Inactiva
+  Cerrada
+}
+
+model citas {
+  id                Int      @id @default(autoincrement())
+  estudiante_id     Int
+  monitor_id        Int
+  disponibilidad_id Int?
+  materia_id        Int
+  fecha_cita        DateTime
+  hora_inicio       DateTime
+  hora_fin          DateTime
+  ubicacion         String?
+  estado            CitaEstado @default(pendiente)
+  detalles          String?
+  notas_estudiante  String?
+  notas_monitor     String?
+  created_at        DateTime   @default(now())
+
+  estudiante usuarios        @relation("CitasDelEstudiante", fields: [estudiante_id], references: [id])
+  monitor    usuarios        @relation("CitasDelMonitor", fields: [monitor_id], references: [id])
+  disponibilidad disponibilidades? @relation(fields: [disponibilidad_id], references: [id])
+  materia    materias        @relation(fields: [materia_id], references: [id])
+  asistencia asistencias?
+
+  @@index([monitor_id, fecha_cita, estado])
+  @@index([estudiante_id, fecha_cita])
+}
+
+enum CitaEstado {
+  pendiente
+  confirmada
+  completada
+  cancelada
+}
+
+model asistencias {
+  id                 Int      @id @default(autoincrement())
+  cita_id            Int      @unique
+  fecha_registro     DateTime @default(now())
+  validada_por_admin Boolean  @default(false)
+  admin_id           Int?
+
+  cita  citas  @relation(fields: [cita_id], references: [id], onDelete: Cascade)
+  admin admins? @relation(fields: [admin_id], references: [id])
+}

@@ -215,30 +215,59 @@ export default function AdminDashboardComplete() {
     (typeof window !== "undefined" ? (window as any).__API_URL__ : "") // fallback opcional
 
   useEffect(() => {
-    // NOTE: Sanitized — replace with real data source
-    // Reemplaza las rutas por las de tu backend. Si necesitas auth, añade el header Authorization.
-    const headers: HeadersInit = {}
-    if (process.env.NEXT_PUBLIC_API_TOKEN) headers["Authorization"] = `Bearer ${process.env.NEXT_PUBLIC_API_TOKEN}`
-
     ;(async () => {
       try {
-        if (API_BASE) {
-          const [u, m, s, a] = await Promise.all([
-            fetch(`${API_BASE}/admin/usuarios`, { headers }),
-            fetch(`${API_BASE}/monitores`, { headers }),
-            fetch(`${API_BASE}/materias`, { headers }),
-            fetch(`${API_BASE}/citas`, { headers }),
-          ])
-          if (u.ok) setUsers(await u.json())
-          if (m.ok) setMonitors(await m.json())
-          if (s.ok) setSubjects(await s.json())
-          if (a.ok) setAppointments(await a.json())
+        const [u, s, res] = await Promise.all([
+          fetch('/api/usuarios?rol=ESTUDIANTE'),
+          fetch('/api/materias'),
+          fetch('/api/usuarios?rol=MONITOR'),
+        ])
+        if (u.ok) {
+        const data = await u.json();
+        setUsers(data.map((user: any) => ({
+          id: String(user.id),
+          name: user.nombre,
+          email: user.email,
+          role: user.rol,            // ya viene como 'Estudiante'
+          status: 'Activo',
+          program: user.programa || '',
+          semester: user.semestre || '',
+          joinDate: new Date().toISOString().split('T')[0]
+        })));
+      }
+        if (s.ok) {
+          const data = await s.json()
+          setSubjects(data.map((subject: any) => ({
+            id: subject.id.toString(),
+            name: subject.nombre,
+            code: subject.codigo,
+            credits: subject.creditos || 3,
+            faculty: '',
+            monitors: 0,
+            students: 0,
+            sessions: 0,
+            status: subject.estado || 'Activo'
+          })));
         }
-      } catch {
-        // Silencioso: el UI se muestra, pero sin datos hasta que conectes tu API
+        if (res.ok) {
+        const data = await res.json();
+        setMonitors(data.map((user: any) => ({
+          id: String(user.id),
+          name: user.nombre,
+          email: user.email,
+          role: user.rol,            // 'Monitor'
+          status: 'Activo',
+          program: user.programa || '',
+          semester: user.semestre || '',
+          joinDate: new Date().toISOString().split('T')[0]
+        })));
+      }
+        //citas no implementados aún, dejar vacíos
+      } catch (error) {
+        console.error('Error fetching data:', error)
       }
     })()
-  }, [API_BASE])
+  }, [])
 
   /** ======== MÉTRICAS (derivadas de los arrays, sin números ficticios) ======== */
   const systemStats = useMemo(() => {
@@ -1232,18 +1261,7 @@ export default function AdminDashboardComplete() {
                           </div>
                         </div>
 
-                        <div className="space-y-2">
-                          <Label htmlFor="description">Descripción del Sistema</Label>
-                          <Textarea id="description" defaultValue="" placeholder="Descripción..." className="min-h-[100px]" />
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <Label>Modo de Mantenimiento</Label>
-                            <p className="text-sm text-gray-500">Activa el modo de mantenimiento para actualizaciones</p>
-                          </div>
-                          <Switch />
-                        </div>
+                        
 
                         <Button className="bg-red-800 hover:bg-red-900">
                           <Save className="h-4 w-4 mr-2" />Guardar Cambios

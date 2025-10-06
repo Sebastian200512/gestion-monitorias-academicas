@@ -250,6 +250,35 @@ export default function StudentDashboard() {
     avatar: "/placeholder.svg?height=100&width=100",
   })
 
+  // Cargar info del usuario al entrar a configuración
+  useEffect(() => {
+    const userId = 1 // Hardcodeado, reemplazar con autenticación real si está disponible
+    if (activeTab === "settings" && userId) {
+      fetch('/api/usuarios')
+        .then(res => res.json())
+        .then((users) => {
+          const user = users.find((u: any) => u.id === userId)
+          if (user) {
+            const [firstName, ...lastNameParts] = user.nombre.split(" ")
+            setUserData({
+              firstName: firstName || "",
+              lastName: lastNameParts.join(" ") || "",
+              email: user.email || "",
+              phone: "", // No está en el endpoint, se puede dejar vacío o agregar si se extiende el endpoint
+              studentId: user.codigo || "",
+              program: user.programa || "",
+              semester: user.semestre ? user.semestre.toString() : "",
+              bio: "", // No está en el endpoint, se puede dejar vacío o agregar si se extiende el endpoint
+              avatar: "/placeholder.svg?height=100&width=100",
+            })
+          }
+        })
+        .catch((error) => {
+          console.error("Error cargando info usuario:", error)
+        })
+    }
+  }, [activeTab])
+
   const [notifications, setNotifications] = useState({
     emailReminders: false,
     smsReminders: false,
@@ -544,16 +573,36 @@ export default function StudentDashboard() {
     console.log("Saving profile:", userData)
   }
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     if (newPassword !== confirmPassword) {
       alert("Las contraseñas no coinciden")
       return
     }
-    console.log("Changing password")
-    setShowPasswordDialog(false)
-    setCurrentPassword("")
-    setNewPassword("")
-    setConfirmPassword("")
+    try {
+      const email = userData.email
+      const res = await fetch('/api/auth/login', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          currentPassword,
+          newPassword,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        alert("Contraseña cambiada correctamente")
+        setShowPasswordDialog(false)
+        setCurrentPassword("")
+        setNewPassword("")
+        setConfirmPassword("")
+      } else {
+        alert(data.error || "Error al cambiar la contraseña")
+      }
+    } catch (error) {
+      alert("Error al cambiar la contraseña")
+      console.error(error)
+    }
   }
 
   const handleDeleteAccount = () => {
@@ -1580,7 +1629,7 @@ export default function StudentDashboard() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="studentId">Código Estudiantil</Label>
-                            <Input id="studentId" value={userData.studentId} disabled />
+                            <Input id="studentId" value={userData.studentId} readOnly />
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="program">Programa Académico</Label>
@@ -1611,10 +1660,6 @@ export default function StudentDashboard() {
                         
 
                         <div className="flex gap-2">
-                          <Button onClick={handleSaveProfile} className="bg-red-800 hover:bg-red-900">
-                            <Save className="h-4 w-4 mr-2" />
-                            Guardar Cambios
-                          </Button>
                           <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
                             <Shield className="h-4 w-4 mr-2" />
                             Cambiar Contraseña
@@ -2229,3 +2274,4 @@ export default function StudentDashboard() {
     </SidebarProvider>
   )
 }
+

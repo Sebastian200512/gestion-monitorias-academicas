@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { GraduationCap, Mail, Lock, AlertCircle } from "lucide-react"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001/api"
+const API_BASE = "/api"
 
 export default function LoginPage() {
   const router = useRouter()
