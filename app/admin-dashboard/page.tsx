@@ -239,9 +239,9 @@ export default function AdminDashboardComplete() {
           const data = await s.json()
           setSubjects(data.map((subject: any) => ({
             id: subject.id.toString(),
-            name: subject.nombre,
-            code: subject.codigo,
-            credits: subject.creditos || 3,
+            name: subject.name,
+            code: subject.code,
+            credits: subject.credits || 3,
             faculty: '',
             monitors: 0,
             students: 0,
@@ -550,8 +550,8 @@ export default function AdminDashboardComplete() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Gestión de Usuarios</h2>
-                    <p className="text-gray-600">Administra todos los usuarios del sistema</p>
+                    <h2 className="text-2xl font-bold text-gray-900">Gestión de Estudiantes</h2>
+                    <p className="text-gray-600">Administra todos los Estudiantes del sistema</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {selectedItems.length > 0 && (
@@ -573,24 +573,6 @@ export default function AdminDashboardComplete() {
                         <Input placeholder="Buscar por nombre, email..." className="pl-10"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
-                      <Select value={filterRole} onValueChange={setFilterRole}>
-                        <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por rol" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todos los roles</SelectItem>
-                          <SelectItem value="student">Estudiantes</SelectItem>
-                          <SelectItem value="monitor">Monitores</SelectItem>
-                          <SelectItem value="admin">Administradores</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Select value={filterStatus} onValueChange={setFilterStatus}>
-                        <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por estado" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todos los estados</SelectItem>
-                          <SelectItem value="active">Activos</SelectItem>
-                          <SelectItem value="pending">Pendientes</SelectItem>
-                          <SelectItem value="inactive">Inactivos</SelectItem>
-                        </SelectContent>
-                      </Select>
                       <Button variant="outline" size="icon"><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
@@ -708,22 +690,7 @@ export default function AdminDashboardComplete() {
                         <Input placeholder="Buscar por nombre, email..." className="pl-10"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
-                      <Select value={filterStatus} onValueChange={setFilterStatus}>
-                        <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por estado" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todos los estados</SelectItem>
-                          <SelectItem value="active">Activos</SelectItem>
-                          <SelectItem value="pending">Pendientes</SelectItem>
-                          <SelectItem value="inactive">Inactivos</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Select value={filterFaculty} onValueChange={setFilterFaculty}>
-                        <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por materia" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todas las materias</SelectItem>
-                          {/* TODO: Poblar dinámicamente desde tu API */}
-                        </SelectContent>
-                      </Select>
+                      
                       <Button variant="outline" size="icon"><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
@@ -736,21 +703,13 @@ export default function AdminDashboardComplete() {
                       <CardContent className="p-6">
                         <div className="flex items-start gap-4">
                           <Avatar className="h-16 w-16">
-                            <AvatarImage src={monitor.photo || "/placeholder.svg"} alt={monitor.name} />
                             <AvatarFallback>{monitor.name?.charAt(0) ?? "M"}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
                             <div className="flex items-start justify-between">
                               <div>
                                 <h3 className="font-medium text-gray-900">{monitor.name}</h3>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <div className="flex items-center gap-1">
-                                    <Star className="h-4 w-4 text-amber-500 fill-current" />
-                                    <span className="text-sm text-gray-600">{monitor.rating ?? "—"}</span>
-                                  </div>
-                                  <span className="text-sm text-gray-400">•</span>
-                                  <span className="text-sm text-gray-600">{monitor.experience ?? "—"}</span>
-                                </div>
+                                
                               </div>
                               <Badge className={getStatusColor(monitor.status)}>
                                 {getStatusIcon(monitor.status)} <span className="ml-1">{monitor.status}</span>
@@ -834,21 +793,6 @@ export default function AdminDashboardComplete() {
                         <Input placeholder="Buscar por nombre, código..." className="pl-10"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
-                      <Select value={filterFaculty} onValueChange={setFilterFaculty}>
-                        <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por facultad" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todas las facultades</SelectItem>
-                          {/* TODO: Poblar dinámicamente desde tu API */}
-                        </SelectContent>
-                      </Select>
-                      <Select value={filterStatus} onValueChange={setFilterStatus}>
-                        <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por estado" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todos los estados</SelectItem>
-                          <SelectItem value="active">Activos</SelectItem>
-                          <SelectItem value="inactive">Inactivos</SelectItem>
-                        </SelectContent>
-                      </Select>
                       <Button variant="outline" size="icon"><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
@@ -867,10 +811,7 @@ export default function AdminDashboardComplete() {
                           <TableHead>Código</TableHead>
                           <TableHead>Créditos</TableHead>
                           <TableHead>Facultad</TableHead>
-                          <TableHead>Monitores</TableHead>
-                          <TableHead>Estudiantes</TableHead>
                           <TableHead>Estado</TableHead>
-                          <TableHead>Acciones</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -883,23 +824,10 @@ export default function AdminDashboardComplete() {
                             <TableCell>{subject.code}</TableCell>
                             <TableCell>{subject.credits}</TableCell>
                             <TableCell>{subject.faculty ?? "—"}</TableCell>
-                            <TableCell>{subject.monitors ?? "—"}</TableCell>
-                            <TableCell>{subject.students ?? "—"}</TableCell>
                             <TableCell>
                               <Badge className={getStatusColor(subject.status)}>
                                 {getStatusIcon(subject.status)} <span className="ml-1">{subject.status}</span>
                               </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem><Eye className="h-4 w-4 mr-2" />Ver Detalles</DropdownMenuItem>
-                                  <DropdownMenuItem><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-                                  <DropdownMenuItem><UserCheck className="h-4 w-4 mr-2" />Asignar Monitores</DropdownMenuItem>
-                                  <DropdownMenuItem className="text-red-600"><Trash2 className="h-4 w-4 mr-2" />Eliminar</DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1344,59 +1272,7 @@ export default function AdminDashboardComplete() {
         </DialogContent>
       </Dialog>
 
-      {/* Nuevo Usuario */}
-      <Dialog open={showUserDialog} onOpenChange={setShowUserDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Nuevo Usuario</DialogTitle>
-            <DialogDescription>Agrega un nuevo usuario al sistema</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label htmlFor="firstName">Nombres</Label><Input id="firstName" placeholder="Nombres" /></div>
-              <div className="space-y-2"><Label htmlFor="lastName">Apellidos</Label><Input id="lastName" placeholder="Apellidos" /></div>
-            </div>
-            <div className="space-y-2"><Label htmlFor="email">Correo Electrónico</Label><Input id="email" type="email" placeholder="usuario@dominio.com" /></div>
-            <div className="space-y-2">
-              <Label htmlFor="role">Rol</Label>
-              <Select defaultValue="student">
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="student">Estudiante</SelectItem>
-                  <SelectItem value="monitor">Monitor</SelectItem>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="program">Programa Académico</Label>
-              <Select defaultValue="">
-                <SelectTrigger><SelectValue placeholder="Selecciona un programa" /></SelectTrigger>
-                <SelectContent>
-                  {/* TODO: Poblar dinámicamente */}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="semester">Semestre</Label>
-              <Select defaultValue="">
-                <SelectTrigger><SelectValue placeholder="Selecciona un semestre" /></SelectTrigger>
-                <SelectContent>
-                  {[1,2,3,4,5,6,7,8,9,10].map((sem) => (<SelectItem key={sem} value={sem.toString()}>{sem}° Semestre</SelectItem>))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="sendCredentials" />
-              <label htmlFor="sendCredentials" className="text-sm">Enviar credenciales por correo electrónico</label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowUserDialog(false)}>Cancelar</Button>
-            <Button className="bg-red-800 hover:bg-red-900"><Plus className="h-4 w-4 mr-2" />Crear Usuario</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
 
       {/* Nuevo Monitor */}
       <Dialog open={showMonitorDialog} onOpenChange={setShowMonitorDialog}>
@@ -1438,40 +1314,7 @@ export default function AdminDashboardComplete() {
         </DialogContent>
       </Dialog>
 
-      {/* Nueva Materia */}
-      <Dialog open={showSubjectDialog} onOpenChange={setShowSubjectDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Nueva Materia</DialogTitle>
-            <DialogDescription>Agrega una nueva materia al sistema</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2"><Label htmlFor="subjectName">Nombre de la Materia</Label><Input id="subjectName" placeholder="Ej: Cálculo Diferencial" /></div>
-            <div className="space-y-2"><Label htmlFor="subjectCode">Código</Label><Input id="subjectCode" placeholder="Ej: MAT101" /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label htmlFor="credits">Créditos</Label><Input id="credits" type="number" placeholder="4" /></div>
-              <div className="space-y-2">
-                <Label htmlFor="faculty">Facultad</Label>
-                <Select defaultValue="">
-                  <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
-                  <SelectContent>
-                    {/* TODO: Poblar dinámicamente */}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2"><Label htmlFor="description">Descripción</Label><Textarea id="description" placeholder="Descripción de la materia..." /></div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="activeSubject" defaultChecked />
-              <label htmlFor="activeSubject" className="text-sm">Materia activa</label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSubjectDialog(false)}>Cancelar</Button>
-            <Button className="bg-red-800 hover:bg-red-900"><Plus className="h-4 w-4 mr-2" />Crear Materia</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
 
      {/*Finaliza con el diálogo de confirmación de eliminación:*/}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

@@ -6,9 +6,9 @@ export async function GET() {
     const subjects = await query(`
       SELECT
         id,
-        nombre,
-        codigo,
-        creditos,
+        nombre as name,
+        codigo as code,
+        creditos as credits,
         estado
       FROM materias
     `);

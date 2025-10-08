@@ -30,18 +30,20 @@ export async function POST(request: NextRequest) {
     }
 
     const user = users[0];
-    console.log('Usuario encontrado:', user.nombre_completo, 'Rol:', user.rol);
+    const allRoles = users.map(u => u.rol).filter(r => r);
+    const uniqueRoles = [...new Set(allRoles)];
+    console.log('Usuario encontrado:', user.nombre_completo, 'Roles:', uniqueRoles);
     const isValidPassword = await bcrypt.compare(password, user.contrasena);
     if (!isValidPassword) {
       console.log('Contraseña incorrecta para:', email, 'Stored hash:', user.contrasena);
       return NextResponse.json({ error: 'Contraseña incorrecta' }, { status: 401 });
     }
 
-    const role = user.rol === 'ESTUDIANTE' ? 'student' : user.rol === 'MONITOR' ? 'monitor' : 'admin';
+    const role = uniqueRoles.includes('ESTUDIANTE') ? 'student' : uniqueRoles.includes('MONITOR') ? 'monitor' : 'admin';
 
-    const token = jwt.sign({ id: user.id, email: user.correo, role }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
+    const token = jwt.sign({ id: user.id, email: user.correo, role, roles: uniqueRoles }, process.env.JWT_SECRET || 'secret', { expiresIn: '1h' });
 
-    return NextResponse.json({ token, user: { id: user.id, nombre: user.nombre_completo, email: user.correo, telefono: user.telefono, cargo: user.cargo, role } });
+    return NextResponse.json({ token, user: { id: user.id, nombre: user.nombre_completo, email: user.correo, telefono: user.telefono, cargo: user.cargo, role, roles: uniqueRoles } });
   } catch (error) {
     console.error('Error en login:', error);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

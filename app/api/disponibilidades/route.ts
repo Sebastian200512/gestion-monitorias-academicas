@@ -1,37 +1,77 @@
-import { prisma } from "@/lib/db";
+import { query } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const materia = searchParams.get("materia_id");
-  const where: any = { estado: "Activa" };
-  if (materia) where.materia_id = Number(materia);
 
-  const data = await prisma.disponibilidades.findMany({
-    where,
-    include: { materia: true, monitor: { select: { id: true, nombre_completo: true } } },
-    orderBy: [{ fecha: "asc" }, { hora_inicio: "asc" }]
-  });
-  return NextResponse.json({ ok:true, data });
+  const sql = materia
+    ? `
+      SELECT
+        d.*,
+        m.nombre as materia_nombre,
+        m.codigo as materia_codigo,
+        u.nombre_completo as monitor_nombre_completo,
+        u.id as monitor_id
+      FROM disponibilidades d
+      JOIN materias m ON d.materia_id = m.id
+      JOIN usuarios u ON d.monitor_id = u.id
+      WHERE d.estado = 'Activa' AND d.materia_id = ?
+      ORDER BY FIELD(d.dia, 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes'), d.hora_inicio ASC
+    `
+    : `
+      SELECT
+        d.*,
+        m.nombre as materia_nombre,
+        m.codigo as materia_codigo,
+        u.nombre_completo as monitor_nombre_completo,
+        u.id as monitor_id
+      FROM disponibilidades d
+      JOIN materias m ON d.materia_id = m.id
+      JOIN usuarios u ON d.monitor_id = u.id
+      WHERE d.estado = 'Activa'
+      ORDER BY FIELD(d.dia, 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes'), d.hora_inicio ASC
+    `;
+
+  const data = await query(sql, materia ? [Number(materia)] : []);
+  const formattedData = data.map((row: any) => ({
+    id: row.id,
+    monitor_id: row.monitor_id,
+    materia_id: row.materia_id,
+    dia: row.dia,
+    hora_inicio: row.hora_inicio,
+    hora_fin: row.hora_fin,
+    ubicacion: row.ubicacion,
+    estado: row.estado,
+    materia: {
+      id: row.materia_id,
+      nombre: row.materia_nombre,
+      codigo: row.materia_codigo
+    },
+    monitor: {
+      id: row.monitor_id,
+      nombre_completo: row.monitor_nombre_completo
+    }
+  }));
+  return NextResponse.json({ ok: true, data: formattedData });
 }
 
 export async function POST(req: NextRequest) {
-  const { monitor_id, materia_id, fecha, hora_inicio, hora_fin, ubicacion, max_estudiantes } = await req.json();
+  const { monitor_id, materia_id, dia, hora_inicio, hora_fin, ubicacion } = await req.json();
 
-  const isMonitor = await prisma.usuario_rol.findFirst({
-    where: { usuario_id: monitor_id, rol: { nombre: "MONITOR" } },
-    include: { rol: true }
-  });
-  if (!isMonitor) return NextResponse.json({ ok:false, msg:"No autorizado" }, { status: 403 });
+  // Check if user is monitor
+  const isMonitorQuery = `
+    SELECT ur.* FROM usuario_rol ur
+    JOIN roles r ON ur.rol_id = r.id
+    WHERE ur.usuario_id = ? AND r.nombre = 'MONITOR'
+  `;
+  const isMonitor = await query(isMonitorQuery, [monitor_id]);
+  if (isMonitor.length === 0) return NextResponse.json({ ok: false, msg: "No autorizado" }, { status: 403 });
 
-  const disp = await prisma.disponibilidades.create({
-    data: {
-      monitor_id, materia_id,
-      fecha: new Date(fecha),
-      hora_inicio: new Date(hora_inicio),
-      hora_fin: new Date(hora_fin),
-      ubicacion, max_estudiantes
-    }
-  });
-  return NextResponse.json({ ok:true, data: disp });
+  const insertSql = `
+    INSERT INTO disponibilidades (monitor_id, materia_id, dia, hora_inicio, hora_fin, ubicacion, estado)
+    VALUES (?, ?, ?, ?, ?, ?, 'Activa')
+  `;
+  const result = await query(insertSql, [monitor_id, materia_id, dia, hora_inicio, hora_fin, ubicacion]);
+  return NextResponse.json({ ok: true, data: { id: result.insertId, ...req.body } });
 }

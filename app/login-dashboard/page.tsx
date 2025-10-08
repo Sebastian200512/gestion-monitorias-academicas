@@ -141,40 +141,7 @@ export default function LoginPage() {
               </a>
             </div>
 
-            {/* 🚀 Botones Provisionales para acceder a los paneles */}
-            <div className="mt-6 space-y-2">
-              <p className="text-center text-sm text-gray-600 mb-2">
-                Accesos provisionales para desarrollo:
-              </p>
-              <div className="flex flex-col gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-red-700 text-red-800 hover:bg-red-50"
-                  onClick={() => router.push("/admin-dashboard")}
-                >
-                  Entrar como Administrador
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-amber-600 text-amber-700 hover:bg-amber-50"
-                  onClick={() => router.push("/monitor-dashboard")}
-                >
-                  Entrar como Monitor
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-green-600 text-green-700 hover:bg-green-50"
-                  onClick={() => router.push("/estudiante-dashboard")}
-                >
-                  Entrar como Estudiante
-                </Button>
-              </div>
-            </div>
+            
           </CardContent>
         </Card>
 

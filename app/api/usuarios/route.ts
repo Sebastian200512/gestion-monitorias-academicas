@@ -9,28 +9,33 @@ export async function GET(req: Request) {
 
     // base: solo roles del catálogo que nos interesan
     const sqlBase = `
-      SELECT DISTINCT
+      SELECT
         u.id,
         u.nombre_completo    AS nombre,
         u.correo             AS email,
         u.programa,
         u.semestre,
-        CASE r.nombre
-          WHEN 'MONITOR' THEN 'Monitor'
-          WHEN 'ESTUDIANTE' THEN 'Estudiante'
-        END AS rol
+        GROUP_CONCAT(r.nombre) AS roles
       FROM usuarios u
       JOIN usuario_rol ur ON ur.usuario_id = u.id
       JOIN roles r        ON r.id = ur.rol_id
       WHERE r.nombre IN ('ESTUDIANTE','MONITOR')
+      GROUP BY u.id, u.nombre_completo, u.correo, u.programa, u.semestre
     `;
 
     const sql = rol === "ESTUDIANTE" || rol === "MONITOR"
-      ? sqlBase + ` AND r.nombre = ? ORDER BY u.nombre_completo ASC`
+      ? sqlBase + ` HAVING FIND_IN_SET(?, roles) ORDER BY u.nombre_completo ASC`
       : sqlBase + ` ORDER BY u.nombre_completo ASC`;
 
     const rows = await query(sql, rol ? [rol] : []);
-    return NextResponse.json(rows);
+
+    // Process rows to split roles into array
+    const processedRows = rows.map((row: any) => ({
+      ...row,
+      roles: row.roles ? row.roles.split(',') : []
+    }));
+
+    return NextResponse.json(processedRows);
   } catch (err) {
     console.error("Error al obtener usuarios:", err);
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });

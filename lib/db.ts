@@ -16,8 +16,8 @@ export async function getConnection() {
   return connection;
 }
 
-export async function query(sql: string, params: any[] = []): Promise<any[]> {
+export async function query(sql: string, params: any[] = []): Promise<any> {
   const conn = await getConnection();
   const [rows] = await conn.execute(sql, params);
-  return rows as any[];
+  return rows;
 }

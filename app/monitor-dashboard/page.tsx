@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   Dialog,
   DialogContent,
@@ -21,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Sidebar,
   SidebarContent,
@@ -158,19 +158,19 @@ interface MonitorAppointment {
 }
 
 interface AvailabilitySlot {
-  id: string
+  ids: string[]
   day: string
   startTime: string
   endTime: string
   location: string
-  maxStudents: number
   subjects: string[]
   isActive: boolean
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001/api"
+const API_BASE = "/api"
 
 export default function MonitorDashboard() {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState("home")
   const [showAvailabilityDialog, setShowAvailabilityDialog] = useState(false)
   const [showAppointmentDialog, setShowAppointmentDialog] = useState(false)
@@ -182,27 +182,64 @@ export default function MonitorDashboard() {
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [userId, setUserId] = useState<number | null>(null)
+
+  // Load user data and available subjects on component mount
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user")
+    if (storedUser) {
+      const parsedUser = JSON.parse(storedUser)
+      setUserId(parsedUser.id)
+      // Set initial monitor data from user
+      const [firstName, ...lastNameParts] = parsedUser.nombre.split(" ")
+      setMonitorData({
+        firstName: firstName || "",
+        lastName: lastNameParts.join(" ") || "",
+        email: parsedUser.email || "",
+        phone: parsedUser.telefono || "",
+        employeeId: parsedUser.id.toString(),
+        subjects: [],
+      })
+    }
+
+    // Fetch available subjects
+    const fetchSubjects = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/materias`)
+        if (response.ok) {
+          const subjectsData = await response.json()
+          setAvailableSubjects(subjectsData || [])
+        }
+      } catch (error) {
+        console.error("Error fetching subjects:", error)
+      }
+    }
+
+    fetchSubjects()
+  }, [])
 
   // Fetch data on component mount
   useEffect(() => {
     const fetchData = async () => {
+      if (!userId) return
+
       try {
         // Fetch monitor profile
-        const profileResponse = await fetch(`${API_BASE}/monitor/profile`)
+        const profileResponse = await fetch(`${API_BASE}/monitor/profile?userId=${userId}`)
         if (profileResponse.ok) {
           const profileData = await profileResponse.json()
-          setMonitorData(profileData)
+          setMonitorData(prev => ({ ...prev, ...profileData }))
         }
 
         // Fetch appointments
-        const appointmentsResponse = await fetch(`${API_BASE}/monitor/appointments`)
+        const appointmentsResponse = await fetch(`${API_BASE}/monitor/appointments?userId=${userId}`)
         if (appointmentsResponse.ok) {
           const appointmentsData = await appointmentsResponse.json()
           setAppointments(appointmentsData)
         }
 
         // Fetch availability slots
-        const availabilityResponse = await fetch(`${API_BASE}/monitor/availability`)
+        const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`)
         if (availabilityResponse.ok) {
           const availabilityData = await availabilityResponse.json()
           setAvailabilitySlots(availabilityData)
@@ -213,7 +250,7 @@ export default function MonitorDashboard() {
     }
 
     fetchData()
-  }, [])
+  }, [userId])
 
   // Monitor profile data
   const [monitorData, setMonitorData] = useState({
@@ -223,12 +260,6 @@ export default function MonitorDashboard() {
     phone: "",
     employeeId: "",
     subjects: [],
-    experience: "",
-    rating: 0,
-    totalSessions: 0,
-    bio: "",
-    avatar: "",
-    specialties: [],
   })
 
   // Availability slots
@@ -240,9 +271,11 @@ export default function MonitorDashboard() {
     startTime: "",
     endTime: "",
     location: "",
-    maxStudents: 1,
     subjects: [] as string[],
   })
+
+  const [editingSlot, setEditingSlot] = useState<AvailabilitySlot | null>(null)
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
 
   const [appointments, setAppointments] = useState<MonitorAppointment[]>([])
 
@@ -276,22 +309,198 @@ export default function MonitorDashboard() {
     }
   }
 
-  const handleAddAvailability = () => {
-    const newSlot: AvailabilitySlot = {
-      id: Date.now().toString(),
-      ...newAvailability,
-      isActive: true,
+  const handleAddAvailability = async () => {
+    if (!userId || newAvailability.subjects.length === 0) return
+
+    try {
+      // Create slots for each selected subject
+      const promises = newAvailability.subjects.map(async (subjectName) => {
+        // Get subject ID by name
+        const subjectsResponse = await fetch(`${API_BASE}/materias`)
+        const subjectsData = await subjectsResponse.json()
+        const subject = subjectsData.find((s: any) => s.name === subjectName)
+
+        if (!subject) {
+          console.error(`Subject ${subjectName} not found`)
+          return null
+        }
+
+        const response = await fetch(`${API_BASE}/disponibilidades`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            monitor_id: userId,
+            materia_id: subject.id,
+            dia: newAvailability.day,
+            hora_inicio: newAvailability.startTime,
+            hora_fin: newAvailability.endTime,
+            ubicacion: newAvailability.location
+          })
+        })
+
+        if (response.ok) {
+          const result = await response.json()
+          return {
+            ids: [result.data.id.toString()],
+            day: newAvailability.day,
+            startTime: newAvailability.startTime,
+            endTime: newAvailability.endTime,
+            location: newAvailability.location,
+            subjects: [subjectName],
+            isActive: true,
+          }
+        }
+        return null
+      })
+
+      const newSlots = (await Promise.all(promises)).filter(slot => slot !== null)
+      setAvailabilitySlots([...availabilitySlots, ...newSlots])
+
+      setNewAvailability({
+        day: "",
+        startTime: "",
+        endTime: "",
+        location: "",
+        subjects: [],
+      })
+      setShowAvailabilityDialog(false)
+    } catch (error) {
+      console.error("Error adding availability:", error)
     }
-    setAvailabilitySlots([...availabilitySlots, newSlot])
+  }
+
+  const handleEditAvailability = (slot: AvailabilitySlot) => {
+    setEditingSlot(slot)
     setNewAvailability({
-      day: "",
-      startTime: "",
-      endTime: "",
-      location: "",
-      maxStudents: 1,
-      subjects: [],
+      day: slot.day,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      location: slot.location,
+      subjects: slot.subjects,
     })
-    setShowAvailabilityDialog(false)
+    setShowAvailabilityDialog(true)
+  }
+
+  const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
+    if (!confirm("¿Estás seguro de que quieres eliminar este horario?")) return
+
+    try {
+      // Delete all database entries for this slot
+      const deletePromises = slot.ids.map(id =>
+        fetch(`${API_BASE}/disponibilidades/${id}`, {
+          method: 'DELETE',
+        })
+      )
+
+      const results = await Promise.all(deletePromises)
+      const allSuccessful = results.every(response => response.ok)
+
+      if (allSuccessful) {
+        setAvailabilitySlots(availabilitySlots.filter(s =>
+          s.day !== slot.day ||
+          s.startTime !== slot.startTime ||
+          s.endTime !== slot.endTime ||
+          s.location !== slot.location
+        ))
+      } else {
+        console.error("Error deleting some availability slots")
+      }
+    } catch (error) {
+      console.error("Error deleting availability:", error)
+    }
+  }
+
+  const handleSaveEditAvailability = async () => {
+    if (!editingSlot || !userId) return
+
+    if (!confirm("¿Estás seguro de que quieres editar esta disponibilidad?")) return
+
+    try {
+      // Update existing entries and handle subject changes
+      const oldSubjects = editingSlot.subjects
+      const newSubjects = newAvailability.subjects
+
+      // Get subject IDs
+      const subjectsResponse = await fetch(`${API_BASE}/materias`)
+      const subjectsData = await subjectsResponse.json()
+
+      // Update existing entries
+      const updatePromises = []
+      const minLength = Math.min(editingSlot.ids.length, newSubjects.length)
+
+      for (let i = 0; i < minLength; i++) {
+        const subject = subjectsData.find((s: any) => s.name === newSubjects[i])
+        if (subject) {
+          updatePromises.push(
+            fetch(`${API_BASE}/disponibilidades/${editingSlot.ids[i]}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                monitor_id: userId,
+                materia_id: subject.id,
+                dia: newAvailability.day,
+                hora_inicio: newAvailability.startTime,
+                hora_fin: newAvailability.endTime,
+                ubicacion: newAvailability.location
+              })
+            })
+          )
+        }
+      }
+
+      // Delete extra old entries
+      for (let i = newSubjects.length; i < editingSlot.ids.length; i++) {
+        updatePromises.push(
+          fetch(`${API_BASE}/disponibilidades/${editingSlot.ids[i]}`, {
+            method: 'DELETE',
+          })
+        )
+      }
+
+      // Create new entries for extra subjects
+      const newIds: string[] = []
+      for (let i = editingSlot.ids.length; i < newSubjects.length; i++) {
+        const subject = subjectsData.find((s: any) => s.name === newSubjects[i])
+        if (subject) {
+          const response = await fetch(`${API_BASE}/disponibilidades`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              monitor_id: userId,
+              materia_id: subject.id,
+              dia: newAvailability.day,
+              hora_inicio: newAvailability.startTime,
+              hora_fin: newAvailability.endTime,
+              ubicacion: newAvailability.location
+            })
+          })
+          if (response.ok) {
+            const result = await response.json()
+            newIds.push(result.data.id.toString())
+          }
+        }
+      }
+
+      // Update the slot in state
+      const updatedSlot = {
+        ids: [...editingSlot.ids.slice(0, newSubjects.length), ...newIds],
+        day: newAvailability.day,
+        startTime: newAvailability.startTime,
+        endTime: newAvailability.endTime,
+        location: newAvailability.location,
+        subjects: newSubjects,
+        isActive: true,
+      }
+
+      setAvailabilitySlots(availabilitySlots.map(slot =>
+        slot.ids.join('-') === editingSlot.ids.join('-') ? updatedSlot : slot
+      ))
+
+      setEditingSlot(null)
+      setShowAvailabilityDialog(false)
+    } catch (error) {
+      console.error("Error editing availability:", error)
+    }
   }
 
   const handleAddNotes = (appointment: MonitorAppointment) => {
@@ -336,13 +545,16 @@ export default function MonitorDashboard() {
                 <div>
                   <h1 className="text-xl font-semibold text-gray-900">Panel de Monitor</h1>
                   <p className="text-sm text-gray-500">
-                    {monitorData.firstName} {monitorData.lastName} - Monitor de {monitorData.subjects.join(", ")}
+                    {monitorData.firstName} {monitorData.lastName} 
                   </p>
                 </div>
               </div>
               {activeTab === "home" && (
                 <div className="flex gap-2">
-                  {/* Botones removidos según solicitud del usuario */}
+                  <Button size="sm" variant="outline" onClick={() => router.push('/estudiante-dashboard')}>
+                    <User className="h-4 w-4 mr-2" />
+                    Estudiante
+                  </Button>
                 </div>
               )}
             </div>
@@ -393,17 +605,7 @@ export default function MonitorDashboard() {
                     </CardContent>
                   </Card>
 
-                  <Card className="border-l-4 border-l-amber-700">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-gray-600">Calificación</p>
-                          <p className="text-2xl font-bold text-gray-900">{monitorData.rating}</p>
-                        </div>
-                        <Star className="h-8 w-8 text-amber-700" />
-                      </div>
-                    </CardContent>
-                  </Card>
+                  
                 </div>
 
                 {/* Quick Actions */}
@@ -419,7 +621,6 @@ export default function MonitorDashboard() {
                     <CardContent className="space-y-4">
                       <div className="text-sm text-gray-600">
                         <p>Horarios activos: {availabilitySlots.filter((slot) => slot.isActive).length}</p>
-                        <p>Próxima disponibilidad: {availabilitySlots.length > 0 ? `${availabilitySlots[0].day} ${availabilitySlots[0].startTime} - ${availabilitySlots[0].endTime}` : "Sin horarios disponibles"}</p>
                       </div>
                       <div className="flex gap-2">
                         <Button
@@ -453,10 +654,6 @@ export default function MonitorDashboard() {
                         <div className="flex justify-between text-sm">
                           <span>Estudiantes atendidos:</span>
                           <span className="font-medium">{new Set(completedAppointments.map(apt => apt.student.name)).size}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span>Calificación promedio:</span>
-                          <span className="font-medium">{monitorData.rating}/5</span>
                         </div>
                         <Button
                           variant="outline"
@@ -752,7 +949,7 @@ export default function MonitorDashboard() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {availabilitySlots.map((slot) => (
-                    <Card key={slot.id}>
+                    <Card key={slot.ids.join('-')}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-3">
                           <div>
@@ -768,10 +965,6 @@ export default function MonitorDashboard() {
                             <MapPin className="h-3 w-3" />
                             <span>{slot.location}</span>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Users className="h-3 w-3" />
-                            <span>Máximo {slot.maxStudents} estudiantes</span>
-                          </div>
                           <div className="flex flex-wrap gap-1 mt-2">
                             {slot.subjects.map((subject, index) => (
                               <Badge key={index} variant="secondary" className="text-xs">
@@ -781,11 +974,21 @@ export default function MonitorDashboard() {
                           </div>
                         </div>
                         <div className="flex gap-2 mt-4">
-                          <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 bg-transparent"
+                            onClick={() => handleEditAvailability(slot)}
+                          >
                             <Edit className="h-3 w-3 mr-1" />
                             Editar
                           </Button>
-                          <Button variant="outline" size="sm" className="text-red-600 bg-transparent">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 bg-transparent"
+                            onClick={() => handleDeleteAvailability(slot)}
+                          >
                             <Trash2 className="h-3 w-3" />
                           </Button>
                         </div>
@@ -817,26 +1020,14 @@ export default function MonitorDashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-gray-600">Sesiones Completadas</p>
-                          <p className="text-2xl font-bold text-gray-900">{monitorData.totalSessions}</p>
-                          <p className="text-xs text-green-600 font-medium">+12% vs mes anterior</p>
+                          {/*<p className="text-2xl font-bold text-gray-900">{monitorData.totalSessions}</p>*/}
                         </div>
                         <Award className="h-8 w-8 text-green-600" />
                       </div>
                     </CardContent>
                   </Card>
 
-                  <Card className="border-l-4 border-l-amber-600">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-gray-600">Calificación Promedio</p>
-                          <p className="text-2xl font-bold text-gray-900">{monitorData.rating}</p>
-                          <p className="text-xs text-amber-600 font-medium">+0.2 vs mes anterior</p>
-                        </div>
-                        <Star className="h-8 w-8 text-amber-600" />
-                      </div>
-                    </CardContent>
-                  </Card>
+                  
 
                   <Card className="border-l-4 border-l-red-600">
                     <CardContent className="p-4">
@@ -844,7 +1035,7 @@ export default function MonitorDashboard() {
                         <div>
                           <p className="text-sm text-gray-600">Horas Totales</p>
                           <p className="text-2xl font-bold text-gray-900">{completedAppointments.reduce((sum, apt) => sum + (parseInt(apt.endTime.split(':')[0]) - parseInt(apt.time.split(':')[0])), 0)}</p>
-                          <p className="text-xs text-red-600 font-medium">+0h vs mes anterior</p>
+                          
                         </div>
                         <Clock className="h-8 w-8 text-red-600" />
                       </div>
@@ -857,7 +1048,7 @@ export default function MonitorDashboard() {
                         <div>
                           <p className="text-sm text-gray-600">Estudiantes Únicos</p>
                           <p className="text-2xl font-bold text-gray-900">{new Set(appointments.map(apt => apt.student.name)).size}</p>
-                          <p className="text-xs text-red-800 font-medium">+0 vs mes anterior</p>
+                          
                         </div>
                         <Users className="h-8 w-8 text-red-800" />
                       </div>
@@ -912,33 +1103,7 @@ export default function MonitorDashboard() {
                     </CardContent>
                   </Card>
 
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Feedback de Estudiantes</CardTitle>
-                      <CardDescription>Comentarios recientes</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        {completedAppointments.length > 0 ? completedAppointments.slice(0, 2).map((appointment, index) => (
-                          <div key={appointment.id} className="p-3 bg-green-50 rounded-lg">
-                            <div className="flex items-center gap-2 mb-1">
-                              <div className="flex">
-                                {Array.from({ length: 5 }, (_, i) => (
-                                  <Star key={i} className={`h-3 w-3 ${i < Math.floor(monitorData.rating) ? 'text-amber-500 fill-current' : 'text-gray-300'}`} />
-                                ))}
-                              </div>
-                              <span className="text-xs text-gray-500">{appointment.student.name}</span>
-                            </div>
-                            <p className="text-sm text-gray-700">
-                              "{appointment.monitorNotes || 'Sesión completada exitosamente.'}"
-                            </p>
-                          </div>
-                        )) : (
-                          <p className="text-sm text-gray-500">No hay feedback disponible</p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
+                  
                 </div>
               </div>
             )}
@@ -1091,12 +1256,26 @@ export default function MonitorDashboard() {
         </SidebarInset>
       </div>
 
-      {/* Add Availability Dialog */}
-      <Dialog open={showAvailabilityDialog} onOpenChange={setShowAvailabilityDialog}>
+      {/* Add/Edit Availability Dialog */}
+      <Dialog open={showAvailabilityDialog} onOpenChange={(open) => {
+        setShowAvailabilityDialog(open)
+        if (!open) {
+          setEditingSlot(null)
+          setNewAvailability({
+            day: "",
+            startTime: "",
+            endTime: "",
+            location: "",
+            subjects: [],
+          })
+        }
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Agregar Horario Disponible</DialogTitle>
-            <DialogDescription>Configura un nuevo horario para recibir estudiantes</DialogDescription>
+            <DialogTitle>{editingSlot ? "Editar Horario Disponible" : "Agregar Horario Disponible"}</DialogTitle>
+            <DialogDescription>
+              {editingSlot ? "Modifica la configuración de este horario" : "Configura un nuevo horario para recibir estudiantes"}
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -1169,48 +1348,31 @@ export default function MonitorDashboard() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Máximo de Estudiantes</Label>
-              <Select
-                value={newAvailability.maxStudents.toString()}
-                onValueChange={(value) =>
-                  setNewAvailability({ ...newAvailability, maxStudents: Number.parseInt(value) })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 estudiante</SelectItem>
-                  <SelectItem value="2">2 estudiantes</SelectItem>
-                  <SelectItem value="3">3 estudiantes</SelectItem>
-                  <SelectItem value="4">4 estudiantes</SelectItem>
-                  <SelectItem value="5">5 estudiantes</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+
 
             <div className="space-y-2">
               <Label>Materias</Label>
-              <div className="flex flex-wrap gap-2">
-                {monitorData.subjects.map((subject) => (
-                  <Badge
-                    key={subject}
-                    variant={newAvailability.subjects.includes(subject) ? "default" : "outline"}
-                    className={`cursor-pointer ${
-                      newAvailability.subjects.includes(subject) ? "bg-red-800 hover:bg-red-900" : "hover:bg-red-50"
-                    }`}
-                    onClick={() => {
-                      const newSubjects = newAvailability.subjects.includes(subject)
-                        ? newAvailability.subjects.filter((s) => s !== subject)
-                        : [...newAvailability.subjects, subject]
-                      setNewAvailability({ ...newAvailability, subjects: newSubjects })
-                    }}
-                  >
-                    {subject}
-                  </Badge>
-                ))}
-              </div>
+              <ScrollArea className="h-32 w-full border rounded-md p-2">
+                <div className="flex flex-wrap gap-2">
+                  {availableSubjects.map((subject) => (
+                    <Badge
+                      key={subject.id}
+                      variant={newAvailability.subjects.includes(subject.name) ? "default" : "outline"}
+                      className={`cursor-pointer ${
+                        newAvailability.subjects.includes(subject.name) ? "bg-red-800 hover:bg-red-900" : "hover:bg-red-50"
+                      }`}
+                      onClick={() => {
+                        const newSubjects = newAvailability.subjects.includes(subject.name)
+                          ? newAvailability.subjects.filter((s) => s !== subject.name)
+                          : [...newAvailability.subjects, subject.name]
+                        setNewAvailability({ ...newAvailability, subjects: newSubjects })
+                      }}
+                    >
+                      {subject.name}
+                    </Badge>
+                  ))}
+                </div>
+              </ScrollArea>
             </div>
           </div>
 
@@ -1218,8 +1380,11 @@ export default function MonitorDashboard() {
             <Button variant="outline" onClick={() => setShowAvailabilityDialog(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleAddAvailability} className="bg-amber-600 hover:bg-amber-700">
-              Agregar Horario
+            <Button
+              onClick={editingSlot ? handleSaveEditAvailability : handleAddAvailability}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {editingSlot ? "Guardar Cambios" : "Agregar Horario"}
             </Button>
           </DialogFooter>
         </DialogContent>
