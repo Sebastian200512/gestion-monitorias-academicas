@@ -6,7 +6,10 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
 
+    console.log('Monitor appointments API called with userId:', userId);
+
     if (!userId) {
+      console.log('No userId provided');
       return NextResponse.json({ error: 'User ID required' }, { status: 400 });
     }
 
@@ -14,7 +17,7 @@ export async function GET(req: Request) {
     const appointmentsQuery = `
       SELECT
         c.id,
-        c.fecha,
+        c.fecha_cita as fecha,
         c.hora_inicio,
         c.hora_fin,
         c.ubicacion,
@@ -34,10 +37,12 @@ export async function GET(req: Request) {
       JOIN usuarios u ON c.estudiante_id = u.id
       JOIN materias m ON c.materia_id = m.id
       WHERE c.monitor_id = ?
-      ORDER BY c.fecha DESC, c.hora_inicio DESC
+      ORDER BY c.fecha_cita DESC, c.hora_inicio DESC
     `;
 
     const appointments = await query(appointmentsQuery, [userId]);
+
+    console.log('Raw appointments from database:', appointments);
 
     // Format the data to match the expected interface
     const formattedAppointments = appointments.map((apt: any) => ({
@@ -62,6 +67,8 @@ export async function GET(req: Request) {
       monitorNotes: apt.notas_monitor,
       createdAt: apt.created_at,
     }));
+
+    console.log('Formatted appointments being returned:', formattedAppointments);
 
     return NextResponse.json(formattedAppointments);
   } catch (error) {

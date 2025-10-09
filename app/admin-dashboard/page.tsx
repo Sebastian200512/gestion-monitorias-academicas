@@ -1069,19 +1069,7 @@ export default function AdminDashboardComplete() {
                     </div>
                   </CardContent></Card>
 
-                  <Card><CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-gray-600">Calificación Promedio</p>
-                        <p className="text-3xl font-bold text-gray-900">{systemStats.averageRating}</p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <ArrowUpRight className="h-3 w-3 text-green-600" />
-                          <p className="text-xs text-green-600">+0 vs período anterior</p>
-                        </div>
-                      </div>
-                      <div className="p-3 bg-amber-100 rounded-full"><Star className="h-6 w-6 text-amber-600 fill-current" /></div>
-                    </div>
-                  </CardContent></Card>
+                  
                 </div>
 
                 {/* Espacios para charts (sin datos ficticios) */}

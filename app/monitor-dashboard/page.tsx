@@ -61,6 +61,8 @@ import {
   Shield,
   Eye,
   EyeOff,
+  Search,
+  Filter,
 } from "lucide-react"
 
 function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (tab: string) => void }) {
@@ -142,7 +144,7 @@ interface MonitorAppointment {
     phone: string
     program: string
     semester: string
-    photo: string
+    photo?: string
   }
   subject: string
   subjectCode: string
@@ -183,6 +185,8 @@ export default function MonitorDashboard() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [userId, setUserId] = useState<number | null>(null)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [filterStatus, setFilterStatus] = useState("all")
 
   // Load user data and available subjects on component mount
   useEffect(() => {
@@ -231,12 +235,39 @@ export default function MonitorDashboard() {
           setMonitorData(prev => ({ ...prev, ...profileData }))
         }
 
-        // Fetch appointments
-        const appointmentsResponse = await fetch(`${API_BASE}/monitor/appointments?userId=${userId}`)
-        if (appointmentsResponse.ok) {
-          const appointmentsData = await appointmentsResponse.json()
-          setAppointments(appointmentsData)
-        }
+    // Fetch appointments
+    const appointmentsResponse = await fetch(`${API_BASE}/citas?monitor_id=${userId}`)
+    if (appointmentsResponse.ok) {
+      const appointmentsJson = await appointmentsResponse.json()
+      if (appointmentsJson.ok && appointmentsJson.data) {
+        // Map data to MonitorAppointment interface
+        const appointmentsData = appointmentsJson.data.map((apt: any) => ({
+          id: apt.id.toString(),
+          student: {
+            name: apt.estudiante.nombre_completo,
+            email: apt.estudiante.correo,
+            phone: apt.estudiante.telefono || '',
+            program: apt.estudiante.programa || '',
+            semester: apt.estudiante.semestre || '',
+            photo: '/placeholder.svg?height=100&width=100',
+          },
+          subject: apt.materia.nombre,
+          subjectCode: apt.materia.codigo,
+          date: apt.fecha_cita,
+          time: apt.hora_inicio,
+          endTime: apt.hora_fin,
+          location: apt.ubicacion,
+          status: apt.estado,
+          details: apt.detalles || '',
+          studentNotes: apt.notas_estudiante,
+          monitorNotes: apt.notas_monitor,
+          createdAt: apt.created_at,
+        }))
+        setAppointments(appointmentsData)
+      } else {
+        setAppointments([])
+      }
+    }
 
         // Fetch availability slots
         const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`)
@@ -529,8 +560,77 @@ export default function MonitorDashboard() {
     setConfirmPassword("")
   }
 
-  const upcomingAppointments = appointments.filter((apt) => new Date(apt.date) >= new Date())
+  // Handler functions
+  const handleViewStudentProfile = (appointment: MonitorAppointment) => {
+    console.log("Viewing student profile:", appointment.student)
+    // Aquí iría la lógica para mostrar el perfil del estudiante
+  }
+
+  const handleContactStudent = (appointment: MonitorAppointment) => {
+    console.log("Contacting student:", appointment.student)
+    // Aquí iría la lógica para contactar al estudiante
+  }
+
+  const handleConfirmAppointment = async (appointment: MonitorAppointment) => {
+    if (!confirm("¿Estás seguro de que quieres confirmar esta cita?")) return
+
+    try {
+      const response = await fetch(`${API_BASE}/citas/${appointment.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'confirmada' })
+      })
+
+      if (response.ok) {
+        setAppointments(appointments.map(apt =>
+          apt.id === appointment.id ? { ...apt, status: 'confirmada' } : apt
+        ))
+      } else {
+        console.error("Error confirming appointment")
+      }
+    } catch (error) {
+      console.error("Error confirming appointment:", error)
+    }
+  }
+
+  const handleCompleteAppointment = async (appointment: MonitorAppointment) => {
+    if (!confirm("¿Estás seguro de que quieres marcar esta cita como completada?")) return
+
+    try {
+      const response = await fetch(`${API_BASE}/citas/${appointment.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'completada' })
+      })
+
+      if (response.ok) {
+        setAppointments(appointments.map(apt =>
+          apt.id === appointment.id ? { ...apt, status: 'completada' } : apt
+        ))
+      } else {
+        console.error("Error completing appointment")
+      }
+    } catch (error) {
+      console.error("Error completing appointment:", error)
+    }
+  }
+
+  const upcomingAppointments = appointments.filter((apt) => apt.status !== "completada")
   const completedAppointments = appointments.filter((apt) => apt.status === "completada")
+
+  // Filter functions
+  const filteredUpcomingAppointments = upcomingAppointments.filter((appointment) => {
+    const matchesSearch =
+      appointment.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      appointment.student.name.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesFilter = filterStatus === "all" || appointment.status === filterStatus
+    return matchesSearch && matchesFilter
+  })
+
+  // Debug: log appointments data
+  console.log('All appointments:', appointments)
+  console.log('Upcoming appointments:', upcomingAppointments)
+  console.log('Completed appointments:', completedAppointments)
 
   return (
     <SidebarProvider>
@@ -571,7 +671,7 @@ export default function MonitorDashboard() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-gray-600">Citas Hoy</p>
+                          <p className="text-sm text-gray-600">Citas</p>
                   <p className="text-2xl font-bold text-gray-900">
                     {upcomingAppointments.length}
                   </p>
@@ -687,11 +787,6 @@ export default function MonitorDashboard() {
                           className="flex items-center justify-between p-4 border border-gray-200 rounded-lg"
                         >
                           <div className="flex items-center gap-4">
-                            <img
-                              src={appointment.student.photo || "/placeholder.svg"}
-                              alt={appointment.student.name}
-                              className="w-12 h-12 rounded-full object-cover"
-                            />
                             <div>
                               <h4 className="font-medium text-gray-900">{appointment.student.name}</h4>
                               <p className="text-sm text-gray-600">{appointment.subject}</p>
@@ -742,6 +837,33 @@ export default function MonitorDashboard() {
                   </div>
                 </div>
 
+                {/* Search and Filters */}
+                <div className="flex items-center gap-4">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Buscar por materia o estudiante..."
+                      className="pl-10"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline">
+                        <Filter className="h-4 w-4 mr-2" />
+                        Filtrar
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => setFilterStatus("all")}>Todas</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setFilterStatus("confirmada")}>Confirmadas</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setFilterStatus("pendiente")}>Pendientes</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setFilterStatus("cancelada")}>Canceladas</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
                 <Tabs defaultValue="upcoming" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-3 max-w-md">
                     <TabsTrigger value="upcoming">Próximas ({upcomingAppointments.length})</TabsTrigger>
@@ -750,89 +872,101 @@ export default function MonitorDashboard() {
                   </TabsList>
 
                   <TabsContent value="upcoming" className="space-y-4">
-                    {upcomingAppointments.map((appointment) => (
-                      <Card key={appointment.id}>
-                        <CardContent className="p-6">
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-4">
-                              <img
-                                src={appointment.student.photo || "/placeholder.svg"}
-                                alt={appointment.student.name}
-                                className="w-16 h-16 rounded-full object-cover"
-                              />
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <h3 className="font-medium text-gray-900">{appointment.student.name}</h3>
-                                  <Badge variant="outline" className="text-xs">
-                                    {appointment.student.program}
-                                  </Badge>
-                                </div>
-                                <p className="text-sm text-gray-600 mb-2">
-                                  {appointment.subject} ({appointment.subjectCode})
-                                </p>
-                                <div className="flex items-center gap-4 text-sm text-gray-500 mb-2">
-                                  <div className="flex items-center gap-1">
-                                    <Calendar className="h-4 w-4" />
-                                    <span>{new Date(appointment.date).toLocaleDateString("es-ES")}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <Clock className="h-4 w-4" />
-                                    <span>
-                                      {appointment.time} - {appointment.endTime}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <MapPin className="h-4 w-4" />
-                                    <span>{appointment.location}</span>
-                                  </div>
-                                </div>
-                                <div className="text-sm text-gray-600">
-                                  <strong>Temas:</strong> {appointment.details}
-                                </div>
-                                {appointment.studentNotes && (
-                                  <div className="text-sm text-gray-600 mt-1">
-                                    <strong>Notas del estudiante:</strong> {appointment.studentNotes}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge className={getStatusColor(appointment.status)}>
-                                {getStatusIcon(appointment.status)}
-                                <span className="ml-1 capitalize">{appointment.status}</span>
-                              </Badge>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="sm">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => setShowAppointmentDialog(true)}>
-                                    <User className="h-4 w-4 mr-2" />
-                                    Ver Perfil Estudiante
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handleAddNotes(appointment)}>
-                                    <Edit className="h-4 w-4 mr-2" />
-                                    Agregar Notas
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem>
-                                    <MessageCircle className="h-4 w-4 mr-2" />
-                                    Contactar Estudiante
-                                  </DropdownMenuItem>
-                                  {appointment.status === "pendiente" && (
-                                    <DropdownMenuItem>
-                                      <CheckCircle className="h-4 w-4 mr-2" />
-                                      Confirmar Cita
-                                    </DropdownMenuItem>
-                                  )}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          </div>
+                    {filteredUpcomingAppointments.length === 0 ? (
+                      <Card>
+                        <CardContent className="p-8 text-center">
+                          <CalendarDays className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes citas próximas</h3>
+                          <p className="text-gray-500 mb-4">No hay monitorías programadas para los próximos días</p>
+                          <Button className="bg-red-800 hover:bg-red-900" onClick={() => setActiveTab("availability")}>
+                            <Plus className="h-4 w-4 mr-2" />
+                            Configurar Disponibilidad
+                          </Button>
                         </CardContent>
                       </Card>
-                    ))}
+                    ) : (
+                      filteredUpcomingAppointments.map((appointment) => (
+                        <Card key={appointment.id}>
+                          <CardContent className="p-6">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-start gap-4">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h3 className="font-medium text-gray-900">{appointment.student.name}</h3>
+                                    <Badge variant="outline" className="text-xs">
+                                      {appointment.student.program}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm text-gray-600 mb-2">
+                                    {appointment.subject} ({appointment.subjectCode})
+                                  </p>
+                                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-2">
+                                    <div className="flex items-center gap-1">
+                                      <Calendar className="h-4 w-4" />
+                                      <span>{new Date(appointment.date).toLocaleDateString("es-ES")}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Clock className="h-4 w-4" />
+                                      <span>
+                                        {appointment.time} - {appointment.endTime}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <MapPin className="h-4 w-4" />
+                                      <span>{appointment.location}</span>
+                                    </div>
+                                  </div>
+                                  {appointment.studentNotes && (
+                                    <div className="text-sm text-gray-600 mt-1">
+                                      <strong>Notas del estudiante:</strong> {appointment.studentNotes}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge className={getStatusColor(appointment.status)}>
+                                  {getStatusIcon(appointment.status)}
+                                  <span className="ml-1 capitalize">{appointment.status}</span>
+                                </Badge>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm">
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleViewStudentProfile(appointment)}>
+                                      <User className="h-4 w-4 mr-2" />
+                                      Ver Perfil Estudiante
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleAddNotes(appointment)}>
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Agregar Notas
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleContactStudent(appointment)}>
+                                      <MessageCircle className="h-4 w-4 mr-2" />
+                                      Contactar Estudiante
+                                    </DropdownMenuItem>
+                                    {appointment.status === "pendiente" && (
+                                      <DropdownMenuItem onClick={() => handleConfirmAppointment(appointment)}>
+                                        <CheckCircle className="h-4 w-4 mr-2" />
+                                        Confirmar Cita
+                                      </DropdownMenuItem>
+                                    )}
+                                    {appointment.status === "confirmada" && (
+                                      <DropdownMenuItem onClick={() => handleCompleteAppointment(appointment)}>
+                                        <CheckCircle className="h-4 w-4 mr-2" />
+                                        Marcar como Completada
+                                      </DropdownMenuItem>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
                   </TabsContent>
 
                   <TabsContent value="completed" className="space-y-4">
