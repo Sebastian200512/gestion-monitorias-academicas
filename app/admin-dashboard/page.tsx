@@ -200,6 +200,7 @@ export default function AdminDashboardComplete() {
   const [filterRole, setFilterRole] = useState("all")
   const [filterFaculty, setFilterFaculty] = useState("all")
   const [filterDate, setFilterDate] = useState("all")
+  const [filterSubjectStatus, setFilterSubjectStatus] = useState("all")
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [editingItem, setEditingItem] = useState<any>(null)
 
@@ -217,10 +218,11 @@ export default function AdminDashboardComplete() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [u, s, res] = await Promise.all([
+        const [u, s, res, appointmentsRes] = await Promise.all([
           fetch('/api/usuarios?rol=ESTUDIANTE'),
           fetch('/api/materias'),
           fetch('/api/usuarios?rol=MONITOR'),
+          fetch('/api/citas'),
         ])
         if (u.ok) {
         const data = await u.json();
@@ -262,12 +264,145 @@ export default function AdminDashboardComplete() {
           joinDate: new Date().toISOString().split('T')[0]
         })));
       }
+        if (appointmentsRes.ok) {
+          const appointmentsJson = await appointmentsRes.json();
+          if (appointmentsJson.ok && appointmentsJson.data) {
+            const appointmentsData = appointmentsJson.data.map((apt: any) => ({
+              id: apt.id.toString(),
+              student: {
+                id: apt.estudiante.id.toString(),
+                name: apt.estudiante.nombre_completo,
+                program: apt.estudiante.programa || '',
+              },
+              monitor: {
+                id: apt.monitor.id.toString(),
+                name: apt.monitor.nombre_completo,
+              },
+              subject: apt.materia.nombre,
+              subjectCode: apt.materia.codigo,
+              date: apt.fecha_cita,
+              time: apt.hora_inicio,
+              endTime: apt.hora_fin,
+              location: apt.ubicacion,
+              status: apt.estado,
+              createdAt: apt.created_at,
+            }));
+            setAppointments(appointmentsData);
+          } else {
+            setAppointments([]);
+          }
+        } else {
+          setAppointments([]);
+        }
         //citas no implementados aún, dejar vacíos
       } catch (error) {
         console.error('Error fetching data:', error)
       }
     })()
   }, [])
+
+  /** ======== FILTRADO DE CITAS ======== */
+  const filteredAppointments = useMemo(() => {
+    let filtered = appointments
+
+    // Filtro por búsqueda
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(apt =>
+        apt.student.name.toLowerCase().includes(term) ||
+        apt.monitor.name.toLowerCase().includes(term) ||
+        apt.subject.toLowerCase().includes(term)
+      )
+    }
+
+    // Filtro por estado
+    if (filterStatus !== "all") {
+      const statusMap: { [key: string]: string } = {
+        confirmed: "confirmada",
+        pending: "pendiente",
+        completed: "completada",
+        cancelled: "cancelada",
+      }
+      const mappedStatus = statusMap[filterStatus] || filterStatus
+      filtered = filtered.filter(apt => apt.status === mappedStatus)
+    }
+
+    // Filtro por materia
+    if (filterFaculty !== "all") {
+      filtered = filtered.filter(apt => apt.subject === filterFaculty)
+    }
+
+    // Filtro por fecha
+    if (filterDate !== "all") {
+      const now = new Date()
+      const today = now.toISOString().split('T')[0]
+      if (filterDate === "today") {
+        filtered = filtered.filter(apt => apt.date === today)
+      } else if (filterDate === "week") {
+        const startOfWeek = new Date(now)
+        startOfWeek.setDate(now.getDate() - now.getDay() + 1) // Monday
+        const endOfWeek = new Date(startOfWeek)
+        endOfWeek.setDate(startOfWeek.getDate() + 6)
+        filtered = filtered.filter(apt => {
+          const aptDate = new Date(apt.date)
+          return aptDate >= startOfWeek && aptDate <= endOfWeek
+        })
+      } else if (filterDate === "month") {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+        filtered = filtered.filter(apt => {
+          const aptDate = new Date(apt.date)
+          return aptDate >= startOfMonth && aptDate <= endOfMonth
+        })
+      }
+    }
+
+    return filtered
+  }, [appointments, searchTerm, filterStatus, filterFaculty, filterDate])
+
+  /** ======== FILTRADO DE USUARIOS ======== */
+  const filteredUsers = useMemo(() => {
+    let filtered = users
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(u =>
+        u.name.toLowerCase().includes(term) ||
+        u.email.toLowerCase().includes(term) ||
+        u.id.toLowerCase().includes(term)
+      )
+    }
+    return filtered
+  }, [users, searchTerm])
+
+  /** ======== FILTRADO DE MONITORES ======== */
+  const filteredMonitors = useMemo(() => {
+    let filtered = monitors
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(m =>
+        m.name.toLowerCase().includes(term) ||
+        m.email.toLowerCase().includes(term) ||
+        m.id.toLowerCase().includes(term)
+      )
+    }
+    return filtered
+  }, [monitors, searchTerm])
+
+  /** ======== FILTRADO DE MATERIAS ======== */
+  const filteredSubjects = useMemo(() => {
+    let filtered = subjects
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase()
+      filtered = filtered.filter(s =>
+        s.name.toLowerCase().includes(term) ||
+        s.code.toLowerCase().includes(term)
+      )
+    }
+    if (filterSubjectStatus !== "all") {
+      filtered = filtered.filter(s => s.status === filterSubjectStatus)
+    }
+    return filtered
+  }, [subjects, searchTerm, filterSubjectStatus])
 
   /** ======== MÉTRICAS (derivadas de los arrays, sin números ficticios) ======== */
   const systemStats = useMemo(() => {
@@ -320,10 +455,10 @@ export default function AdminDashboardComplete() {
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       switch (activeTab) {
-        case "users": setSelectedItems(users.map(u => u.id)); break
-        case "monitors": setSelectedItems(monitors.map(m => m.id)); break
-        case "subjects": setSelectedItems(subjects.map(s => s.id)); break
-        case "appointments": setSelectedItems(appointments.map(a => a.id)); break
+        case "users": setSelectedItems(filteredUsers.map(u => u.id)); break
+        case "monitors": setSelectedItems(filteredMonitors.map(m => m.id)); break
+        case "subjects": setSelectedItems(filteredSubjects.map(s => s.id)); break
+        case "appointments": setSelectedItems(filteredAppointments.map(a => a.id)); break
         default: setSelectedItems([])
       }
     } else {
@@ -570,10 +705,10 @@ export default function AdminDashboardComplete() {
                     <div className="flex flex-wrap items-center gap-4">
                       <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                        <Input placeholder="Buscar por nombre, email..." className="pl-10"
+                        <Input placeholder="Buscar por nombre, email, código..." className="pl-10"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
-                      <Button variant="outline" size="icon"><RefreshCw className="h-4 w-4" /></Button>
+                      <Button variant="outline" size="icon" onClick={() => setSearchTerm('')}><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -585,11 +720,10 @@ export default function AdminDashboardComplete() {
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-[50px]">
-                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === users.length && users.length > 0} />
+                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === filteredUsers.length && filteredUsers.length > 0} />
                           </TableHead>
                           <TableHead>Usuario</TableHead>
                           <TableHead>Email</TableHead>
-                          <TableHead>Rol</TableHead>
                           <TableHead>Programa</TableHead>
                           <TableHead>Estado</TableHead>
                           <TableHead>Fecha Registro</TableHead>
@@ -597,27 +731,17 @@ export default function AdminDashboardComplete() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {users.map((user) => (
+                        {filteredUsers.map((user) => (
                           <TableRow key={user.id}>
                             <TableCell>
                               <Checkbox checked={selectedItems.includes(user.id)} onChange={() => handleSelectItem(user.id)} />
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-3">
-                                <Avatar className="h-8 w-8">
-                                  <AvatarImage src={user.photo || "/placeholder.svg"} alt={user.name} />
-                                  <AvatarFallback>{user.name?.charAt(0) ?? "U"}</AvatarFallback>
-                                </Avatar>
                                 <span className="font-medium">{user.name}</span>
                               </div>
                             </TableCell>
                             <TableCell>{user.email}</TableCell>
-                            <TableCell>
-                              <Badge variant={user.role === "Monitor" ? "default" : "secondary"}
-                                className={user.role === "Monitor" ? "bg-amber-600 hover:bg-amber-700" : ""}>
-                                {user.role}
-                              </Badge>
-                            </TableCell>
                             <TableCell>{user.program || "-"}</TableCell>
                             <TableCell>
                               <Badge className={getStatusColor(user.status)}>
@@ -637,7 +761,7 @@ export default function AdminDashboardComplete() {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {users.length === 0 && (
+                        {filteredUsers.length === 0 && (
                           <TableRow><TableCell colSpan={8} className="text-center text-sm text-gray-500">Sin registros</TableCell></TableRow>
                         )}
                       </TableBody>
@@ -645,7 +769,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{users.length ? `1-${users.length}` : "0"}</strong> de <strong>{users.length}</strong> usuarios
+                      Mostrando <strong>{filteredUsers.length ? `1-${filteredUsers.length}` : "0"}</strong> de <strong>{users.length}</strong> usuarios
                     </div>
                     <Pagination>
                       <PaginationContent>
@@ -687,18 +811,18 @@ export default function AdminDashboardComplete() {
                     <div className="flex flex-wrap items-center gap-4">
                       <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                        <Input placeholder="Buscar por nombre, email..." className="pl-10"
+                        <Input placeholder="Buscar por nombre, email, código..." className="pl-10"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
-                      
-                      <Button variant="outline" size="icon"><RefreshCw className="h-4 w-4" /></Button>
+
+                      <Button variant="outline" size="icon" onClick={() => setSearchTerm('')}><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
                 </Card>
 
                 {/* Grid monitores */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {monitors.map((monitor) => (
+                  {filteredMonitors.map((monitor) => (
                     <Card key={monitor.id}>
                       <CardContent className="p-6">
                         <div className="flex items-start gap-4">
@@ -709,7 +833,7 @@ export default function AdminDashboardComplete() {
                             <div className="flex items-start justify-between">
                               <div>
                                 <h3 className="font-medium text-gray-900">{monitor.name}</h3>
-                                
+
                               </div>
                               <Badge className={getStatusColor(monitor.status)}>
                                 {getStatusIcon(monitor.status)} <span className="ml-1">{monitor.status}</span>
@@ -746,9 +870,14 @@ export default function AdminDashboardComplete() {
                       </CardContent>
                     </Card>
                   ))}
-                  {monitors.length === 0 && (
+                  {filteredMonitors.length === 0 && (
                     <div className="col-span-full text-center text-sm text-gray-500">Sin registros</div>
                   )}
+                </div>
+
+                {/* Count */}
+                <div className="text-sm text-gray-500 text-center">
+                  Mostrando <strong>{filteredMonitors.length}</strong> de <strong>{monitors.length}</strong> monitores
                 </div>
 
                 {/* Paginación dummy */}
@@ -793,7 +922,17 @@ export default function AdminDashboardComplete() {
                         <Input placeholder="Buscar por nombre, código..." className="pl-10"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
-                      <Button variant="outline" size="icon"><RefreshCw className="h-4 w-4" /></Button>
+                      <Select value={filterSubjectStatus} onValueChange={setFilterSubjectStatus}>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Filtrar por estado" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos los estados</SelectItem>
+                          <SelectItem value="Activo">Activas</SelectItem>
+                          <SelectItem value="Inactivo">Desactivas</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button variant="outline" size="icon" onClick={() => { setSearchTerm(''); setFilterSubjectStatus('all'); }}><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -805,7 +944,7 @@ export default function AdminDashboardComplete() {
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-[50px]">
-                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === subjects.length && subjects.length > 0} />
+                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === filteredSubjects.length && filteredSubjects.length > 0} />
                           </TableHead>
                           <TableHead>Materia</TableHead>
                           <TableHead>Código</TableHead>
@@ -815,7 +954,7 @@ export default function AdminDashboardComplete() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {subjects.map((subject) => (
+                        {filteredSubjects.map((subject) => (
                           <TableRow key={subject.id}>
                             <TableCell>
                               <Checkbox checked={selectedItems.includes(subject.id)} onChange={() => handleSelectItem(subject.id)} />
@@ -831,7 +970,7 @@ export default function AdminDashboardComplete() {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {subjects.length === 0 && (
+                        {filteredSubjects.length === 0 && (
                           <TableRow><TableCell colSpan={9} className="text-center text-sm text-gray-500">Sin registros</TableCell></TableRow>
                         )}
                       </TableBody>
@@ -839,7 +978,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{subjects.length ? `1-${subjects.length}` : "0"}</strong> de <strong>{subjects.length}</strong> materias
+                      Mostrando <strong>{filteredSubjects.length ? `1-${filteredSubjects.length}` : "0"}</strong> de <strong>{subjects.length}</strong> materias
                     </div>
                     <Pagination>
                       <PaginationContent>
@@ -888,7 +1027,11 @@ export default function AdminDashboardComplete() {
                         <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por materia" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">Todas las materias</SelectItem>
-                          {/* TODO: Poblar dinámicamente desde tu API */}
+                          {subjects.map((subject) => (
+                            <SelectItem key={subject.id} value={subject.name}>
+                              {subject.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <Select value={filterDate} onValueChange={setFilterDate}>
@@ -900,7 +1043,7 @@ export default function AdminDashboardComplete() {
                           <SelectItem value="month">Este mes</SelectItem>
                         </SelectContent>
                       </Select>
-                      <Button variant="outline" size="icon"><RefreshCw className="h-4 w-4" /></Button>
+                      <Button variant="outline" size="icon" onClick={() => { setSearchTerm(''); setFilterStatus('all'); setFilterFaculty('all'); setFilterDate('all'); }}><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -912,7 +1055,7 @@ export default function AdminDashboardComplete() {
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-[50px]">
-                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === appointments.length && appointments.length > 0} />
+                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === filteredAppointments.length && filteredAppointments.length > 0} />
                           </TableHead>
                           <TableHead>Estudiante</TableHead>
                           <TableHead>Monitor</TableHead>
@@ -925,7 +1068,7 @@ export default function AdminDashboardComplete() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {appointments.map((appointment) => (
+                        {filteredAppointments.map((appointment) => (
                           <TableRow key={appointment.id}>
                             <TableCell>
                               <Checkbox checked={selectedItems.includes(appointment.id)} onChange={() => handleSelectItem(appointment.id)} />
@@ -960,7 +1103,7 @@ export default function AdminDashboardComplete() {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {appointments.length === 0 && (
+                        {filteredAppointments.length === 0 && (
                           <TableRow><TableCell colSpan={8} className="text-center text-sm text-gray-500">Sin registros</TableCell></TableRow>
                         )}
                       </TableBody>
@@ -968,7 +1111,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{appointments.length ? `1-${appointments.length}` : "0"}</strong> de <strong>{appointments.length}</strong> citas
+                      Mostrando <strong>{filteredAppointments.length ? `1-${filteredAppointments.length}` : "0"}</strong> de <strong>{appointments.length}</strong> citas
                     </div>
                     <Pagination>
                       <PaginationContent>
