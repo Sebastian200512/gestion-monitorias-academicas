@@ -748,15 +748,66 @@ const [userData, setUserData] = useState({
     setShowDetailsDialog(true)
   }
 
-  const handleCancelAppointment = (appointment: Appointment) => {
-    setSelectedAppointment(appointment)
-    setShowCancelDialog(true)
-  }
+  const handleCancelAppointment = async (appointment: Appointment) => {
+    try {
+      const res = await fetch(`${API_BASE}/citas/${appointment.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'cancelada' })
+      })
 
-  const confirmCancelAppointment = () => {
-    console.log("Cancelando cita:", selectedAppointment?.id)
-    setShowCancelDialog(false)
-    setSelectedAppointment(null)
+      if (res.ok) {
+        // Update local state
+        setUpcomingAppointments(prev =>
+          prev.map(apt =>
+            apt.id === appointment.id
+              ? { ...apt, status: 'cancelada' as const }
+              : apt
+          )
+        )
+
+        // Reload appointments from API
+        const appointmentsRes = await fetch(`${API_BASE}/citas?estudiante_id=${userId}`)
+        if (appointmentsRes.ok) {
+          const data = await appointmentsRes.json()
+          const appointments = data.data.map((cita: any) => ({
+            id: cita.id.toString(),
+            subject: cita.materia.nombre,
+            subjectCode: cita.materia.codigo,
+            monitor: {
+              name: cita.monitor.nombre_completo,
+              email: cita.monitor.correo,
+              phone: '',
+              rating: 0,
+              photo: '',
+            },
+            date: cita.fecha_cita,
+            time: cita.hora_inicio,
+            endTime: cita.hora_fin,
+            location: cita.ubicacion || '',
+            status: cita.estado,
+            details: '',
+            studentNotes: '',
+            monitorNotes: '',
+            createdAt: '',
+            rating: 0,
+            feedback: '',
+            topics: [],
+            duration: 0
+          }))
+          setUpcomingAppointments(appointments.filter((a: any) => a.status !== 'completada'))
+          setHistoryAppointments(appointments.filter((a: any) => a.status === 'completada'))
+        }
+
+        alert("Cita cancelada exitosamente")
+      } else {
+        console.error("Error canceling appointment:", res.status)
+        alert("Error al cancelar la cita")
+      }
+    } catch (error) {
+      console.error("Error canceling appointment:", error)
+      alert("Error al cancelar la cita")
+    }
   }
 
   const handleRateAppointment = (appointment: Appointment) => {
@@ -1464,10 +1515,6 @@ const [userData, setUserData] = useState({
                                       <BookOpen className="h-4 w-4 mr-2" />
                                       Ver Detalles
                                     </DropdownMenuItem>
-                                    <DropdownMenuItem>
-                                      <MessageCircle className="h-4 w-4 mr-2" />
-                                      Contactar Monitor
-                                    </DropdownMenuItem>
                                     {appointment.status !== "completada" && (
                                       <>
                                         <DropdownMenuItem>
@@ -1770,14 +1817,13 @@ const [userData, setUserData] = useState({
               </div>
             )}
 
-            {/* Settings Tab */}
+            {/* Configuracion */}
             {activeTab === "settings" && (
               <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="profile" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
                     <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
-                    <TabsTrigger value="privacy">Privacidad</TabsTrigger>
                     <TabsTrigger value="preferences">Preferencias</TabsTrigger>
                   </TabsList>
 
@@ -1951,77 +1997,6 @@ const [userData, setUserData] = useState({
                     </Card>
                   </TabsContent>
 
-                  {/* Privacy Tab */}
-                  <TabsContent value="privacy" className="space-y-6">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Configuración de Privacidad</CardTitle>
-                        <CardDescription>Controla quién puede ver tu información y contactarte</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-6">
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label>Visibilidad del Perfil</Label>
-                            <Select
-                              value={privacy.profileVisibility}
-                              onValueChange={(value) => setPrivacy({ ...privacy, profileVisibility: value })}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="public">Público - Visible para todos</SelectItem>
-                                <SelectItem value="students">
-                                  Solo Estudiantes - Visible para otros estudiantes
-                                </SelectItem>
-                                <SelectItem value="private">Privado - Solo visible para monitores asignados</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Mostrar Email en Perfil</Label>
-                              <p className="text-sm text-gray-500">Permite que otros vean tu correo electrónico</p>
-                            </div>
-                            <Switch
-                              checked={privacy.showEmail}
-                              onCheckedChange={(checked) => setPrivacy({ ...privacy, showEmail: checked })}
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Mostrar Teléfono en Perfil</Label>
-                              <p className="text-sm text-gray-500">Permite que otros vean tu número de teléfono</p>
-                            </div>
-                            <Switch
-                              checked={privacy.showPhone}
-                              onCheckedChange={(checked) => setPrivacy({ ...privacy, showPhone: checked })}
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Permitir Mensajes Directos</Label>
-                              <p className="text-sm text-gray-500">Permite que monitores te envíen mensajes directos</p>
-                            </div>
-                            <Switch
-                              checked={privacy.allowDirectMessages}
-                              onCheckedChange={(checked) => setPrivacy({ ...privacy, allowDirectMessages: checked })}
-                            />
-                          </div>
-                        </div>
-
-                        <Button className="bg-red-800 hover:bg-red-900">
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar Configuración
-                        </Button>
-                      </CardContent>
-                    </Card>
-
-                    
-                  </TabsContent>
 
                   {/* Preferences Tab */}
                   <TabsContent value="preferences" className="space-y-6">
@@ -2228,101 +2203,11 @@ const [userData, setUserData] = useState({
         </DialogContent>
       </Dialog>
 
-      {/* Cancel Dialog */}
-      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Cancelar Cita</DialogTitle>
-            <DialogDescription>
-              ¿Estás seguro de que deseas cancelar esta cita? Esta acción no se puede deshacer.
-            </DialogDescription>
-          </DialogHeader>
+      
 
-          {selectedAppointment && (
-            <div className="py-4">
-              <div className="text-sm space-y-2">
-                <p>
-                  <strong>Materia:</strong> {selectedAppointment.subject}
-                </p>
-                <p>
-                  <strong>Monitor:</strong> {selectedAppointment.monitor.name}
-                </p>
-                <p>
-                  <strong>Fecha:</strong> {new Date(selectedAppointment.date).toLocaleDateString("es-ES")}
-                </p>
-                <p>
-                  <strong>Hora:</strong> {selectedAppointment.time}
-                </p>
-              </div>
-            </div>
-          )}
+      
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCancelDialog(false)}>
-              Mantener Cita
-            </Button>
-            <Button variant="destructive" onClick={confirmCancelAppointment}>
-              Cancelar Cita
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rating Dialog */}
-      <Dialog open={showRatingDialog} onOpenChange={setShowRatingDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Calificar Monitoría</DialogTitle>
-            <DialogDescription>Comparte tu experiencia para ayudar a otros estudiantes</DialogDescription>
-          </DialogHeader>
-
-          {selectedAppointment && (
-            <div className="space-y-4">
-              <div className="text-center">
-                <h3 className="font-medium text-gray-900">{selectedAppointment.subject}</h3>
-                <p className="text-sm text-gray-600">con {selectedAppointment.monitor.name}</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Calificación</Label>
-                <div className="flex justify-center gap-1">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      onClick={() => setRating(star)}
-                      className={`p-1 ${star <= rating ? "text-amber-500" : "text-gray-300"}`}
-                    >
-                      <Star className="h-6 w-6 fill-current" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="feedback">Comentarios (opcional)</Label>
-                <Textarea
-                  id="feedback"
-                  placeholder="Comparte tu experiencia con esta monitoría..."
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                  className="min-h-[100px]"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRatingDialog(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={submitRating} disabled={rating === 0} className="bg-red-800 hover:bg-red-900">
-              Enviar Calificación
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Change Password Dialog */}
+      {/* Cambiar contraseña */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
         <DialogContent>
           <DialogHeader>
@@ -2384,33 +2269,7 @@ const [userData, setUserData] = useState({
         </DialogContent>
       </Dialog>
 
-      {/* Delete Account Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-red-600">Eliminar Cuenta</DialogTitle>
-            <DialogDescription>
-              Esta acción es irreversible. Se eliminarán todos tus datos, historial de citas y configuraciones.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4">
-            <p className="text-sm text-gray-600 mb-4">
-              Para confirmar la eliminación de tu cuenta, escribe <strong>"ELIMINAR"</strong> en el campo de abajo:
-            </p>
-            <Input placeholder="Escribe ELIMINAR para confirmar" />
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteAccount}>
-              Eliminar Cuenta Permanentemente
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
     </SidebarProvider>
   )
 }

@@ -181,6 +181,8 @@ export default function MonitorDashboard() {
   const [selectedAppointment, setSelectedAppointment] = useState<MonitorAppointment | null>(null)
   const [monitorNotes, setMonitorNotes] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [showStudentProfileDialog, setShowStudentProfileDialog] = useState(false)
+  const [selectedStudentProfile, setSelectedStudentProfile] = useState<any>(null)
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -562,8 +564,17 @@ export default function MonitorDashboard() {
 
   // Handler functions
   const handleViewStudentProfile = (appointment: MonitorAppointment) => {
-    console.log("Viewing student profile:", appointment.student)
-    // Aquí iría la lógica para mostrar el perfil del estudiante
+    // Use student data directly from the appointment
+    setSelectedStudentProfile({
+      id: appointment.student.email, // Using email as ID since we don't have a separate ID
+      nombre: appointment.student.name,
+      correo: appointment.student.email,
+      telefono: appointment.student.phone || '',
+      programa: appointment.student.program || '',
+      semestre: appointment.student.semester || '',
+      codigo: '', // Not available in current data structure
+    })
+    setShowStudentProfileDialog(true)
   }
 
   const handleContactStudent = (appointment: MonitorAppointment) => {
@@ -612,6 +623,28 @@ export default function MonitorDashboard() {
       }
     } catch (error) {
       console.error("Error completing appointment:", error)
+    }
+  }
+
+  const handleCancelAppointment = async (appointment: MonitorAppointment) => {
+    if (!confirm("¿Estás seguro de que quieres cancelar esta cita?")) return
+
+    try {
+      const response = await fetch(`${API_BASE}/citas/${appointment.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'cancelada' })
+      })
+
+      if (response.ok) {
+        setAppointments(appointments.map(apt =>
+          apt.id === appointment.id ? { ...apt, status: 'cancelada' } : apt
+        ))
+      } else {
+        console.error("Error canceling appointment")
+      }
+    } catch (error) {
+      console.error("Error canceling appointment:", error)
     }
   }
 
@@ -935,18 +968,6 @@ export default function MonitorDashboard() {
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => handleViewStudentProfile(appointment)}>
-                                      <User className="h-4 w-4 mr-2" />
-                                      Ver Perfil Estudiante
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleAddNotes(appointment)}>
-                                      <Edit className="h-4 w-4 mr-2" />
-                                      Agregar Notas
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleContactStudent(appointment)}>
-                                      <MessageCircle className="h-4 w-4 mr-2" />
-                                      Contactar Estudiante
-                                    </DropdownMenuItem>
                                     {appointment.status === "pendiente" && (
                                       <DropdownMenuItem onClick={() => handleConfirmAppointment(appointment)}>
                                         <CheckCircle className="h-4 w-4 mr-2" />
@@ -957,6 +978,12 @@ export default function MonitorDashboard() {
                                       <DropdownMenuItem onClick={() => handleCompleteAppointment(appointment)}>
                                         <CheckCircle className="h-4 w-4 mr-2" />
                                         Marcar como Completada
+                                      </DropdownMenuItem>
+                                    )}
+                                    {(appointment.status === "pendiente" || appointment.status === "confirmada") && (
+                                      <DropdownMenuItem onClick={() => handleCancelAppointment(appointment)}>
+                                        <XCircle className="h-4 w-4 mr-2" />
+                                        Cancelar Cita
                                       </DropdownMenuItem>
                                     )}
                                   </DropdownMenuContent>
@@ -1254,7 +1281,6 @@ export default function MonitorDashboard() {
                   <TabsList className="grid w-full grid-cols-3 max-w-md">
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
                     <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
-                    <TabsTrigger value="security">Seguridad</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="profile" className="space-y-6">
@@ -1364,21 +1390,6 @@ export default function MonitorDashboard() {
                         <Button className="bg-red-800 hover:bg-red-900">
                           <Save className="h-4 w-4 mr-2" />
                           Guardar Preferencias
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  <TabsContent value="security" className="space-y-6">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Seguridad de la Cuenta</CardTitle>
-                        <CardDescription>Gestiona la seguridad de tu cuenta</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
-                          <Shield className="h-4 w-4 mr-2" />
-                          Cambiar Contraseña
                         </Button>
                       </CardContent>
                     </Card>
@@ -1524,39 +1535,9 @@ export default function MonitorDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Add Notes Dialog */}
-      <Dialog open={showNotesDialog} onOpenChange={setShowNotesDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Agregar Notas de Monitoría</DialogTitle>
-            <DialogDescription>
-              Registra observaciones sobre la sesión con {selectedAppointment?.student.name}
-            </DialogDescription>
-          </DialogHeader>
+      
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notas de la Sesión</Label>
-              <Textarea
-                id="notes"
-                placeholder="Describe el progreso del estudiante, temas cubiertos, recomendaciones..."
-                value={monitorNotes}
-                onChange={(e) => setMonitorNotes(e.target.value)}
-                className="min-h-[120px]"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNotesDialog(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSaveNotes} className="bg-red-800 hover:bg-red-900">
-              Guardar Notas
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
 
       {/* Change Password Dialog */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>

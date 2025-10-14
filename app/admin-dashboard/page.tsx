@@ -32,8 +32,22 @@ import {
   AlertTriangle, Plus, Search, Filter, MoreHorizontal, Edit, Trash2, Eye, Download, LogOut,
   Home, FileSpreadsheet, FilePen as FilePdf, FileJson, CheckCircle, XCircle, AlertCircle,
   Save, Mail, Phone, CalendarDays, Star, Bell, Globe, Database, HardDrive, RefreshCw, Loader2,
-  PieChart, BarChart, LineChart, ArrowUpRight, ArrowDownRight,
+  PieChart, BarChart, LineChart, ArrowUpRight, ArrowDownRight, UserX, Check, ChevronsUpDown,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 
 /** ========= Sidebar (sin cambios de estructura) ========= */
 function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (tab: string) => void }) {
@@ -203,6 +217,15 @@ export default function AdminDashboardComplete() {
   const [filterSubjectStatus, setFilterSubjectStatus] = useState("all")
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [editingItem, setEditingItem] = useState<any>(null)
+  const [currentPageSubjects, setCurrentPageSubjects] = useState(1)
+  const pageSizeSubjects = 10
+  const [currentPageUsers, setCurrentPageUsers] = useState(1)
+  const pageSizeUsers = 10
+  const [currentPageMonitors, setCurrentPageMonitors] = useState(1)
+  const pageSizeMonitors = 10
+  const [currentPageAppointments, setCurrentPageAppointments] = useState(1)
+  const pageSizeAppointments = 10
+  const [openSubjectFilter, setOpenSubjectFilter] = useState(false)
 
   /** ======== ESTADO DE DATOS (LIMPIO, SIN MOCKS) ======== */
   const [users, setUsers] = useState<UserType[]>([])
@@ -360,6 +383,14 @@ export default function AdminDashboardComplete() {
     return filtered
   }, [appointments, searchTerm, filterStatus, filterFaculty, filterDate])
 
+  /** ======== PAGINACIÓN DE CITAS ======== */
+  const paginatedAppointments = useMemo(() => {
+    const startIndex = (currentPageAppointments - 1) * pageSizeAppointments
+    return filteredAppointments.slice(startIndex, startIndex + pageSizeAppointments)
+  }, [filteredAppointments, currentPageAppointments, pageSizeAppointments])
+
+  const totalPagesAppointments = Math.ceil(filteredAppointments.length / pageSizeAppointments)
+
   /** ======== FILTRADO DE USUARIOS ======== */
   const filteredUsers = useMemo(() => {
     let filtered = users
@@ -373,6 +404,14 @@ export default function AdminDashboardComplete() {
     }
     return filtered
   }, [users, searchTerm])
+
+  /** ======== PAGINACIÓN DE USUARIOS ======== */
+  const paginatedUsers = useMemo(() => {
+    const startIndex = (currentPageUsers - 1) * pageSizeUsers
+    return filteredUsers.slice(startIndex, startIndex + pageSizeUsers)
+  }, [filteredUsers, currentPageUsers, pageSizeUsers])
+
+  const totalPagesUsers = Math.ceil(filteredUsers.length / pageSizeUsers)
 
   /** ======== FILTRADO DE MONITORES ======== */
   const filteredMonitors = useMemo(() => {
@@ -388,6 +427,14 @@ export default function AdminDashboardComplete() {
     return filtered
   }, [monitors, searchTerm])
 
+  /** ======== PAGINACIÓN DE MONITORES ======== */
+  const paginatedMonitors = useMemo(() => {
+    const startIndex = (currentPageMonitors - 1) * pageSizeMonitors
+    return filteredMonitors.slice(startIndex, startIndex + pageSizeMonitors)
+  }, [filteredMonitors, currentPageMonitors, pageSizeMonitors])
+
+  const totalPagesMonitors = Math.ceil(filteredMonitors.length / pageSizeMonitors)
+
   /** ======== FILTRADO DE MATERIAS ======== */
   const filteredSubjects = useMemo(() => {
     let filtered = subjects
@@ -401,8 +448,19 @@ export default function AdminDashboardComplete() {
     if (filterSubjectStatus !== "all") {
       filtered = filtered.filter(s => s.status === filterSubjectStatus)
     }
+    if (filterFaculty !== "all") {
+      filtered = filtered.filter(s => s.faculty === filterFaculty)
+    }
     return filtered
-  }, [subjects, searchTerm, filterSubjectStatus])
+  }, [subjects, searchTerm, filterSubjectStatus, filterFaculty])
+
+  /** ======== PAGINACIÓN DE MATERIAS ======== */
+  const paginatedSubjects = useMemo(() => {
+    const startIndex = (currentPageSubjects - 1) * pageSizeSubjects
+    return filteredSubjects.slice(startIndex, startIndex + pageSizeSubjects)
+  }, [filteredSubjects, currentPageSubjects, pageSizeSubjects])
+
+  const totalPagesSubjects = Math.ceil(filteredSubjects.length / pageSizeSubjects)
 
   /** ======== MÉTRICAS (derivadas de los arrays, sin números ficticios) ======== */
   const systemStats = useMemo(() => {
@@ -495,19 +553,13 @@ export default function AdminDashboardComplete() {
                   <Download className="h-4 w-4 mr-2" />
                   Exportar Datos
                 </Button>
-                {activeTab === "monitors" && (
-                  <Button size="sm" className="bg-red-800 hover:bg-red-900" onClick={() => setShowMonitorDialog(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Nuevo Monitor
-                  </Button>
-                )}
               </div>
             </div>
           </header>
 
-          {/* Main Content */}
+          {/* Pagina principal */}
           <main className="p-6 space-y-6">
-            {/* ===== Dashboard Tab ===== */}
+            {/* ===== Principal ===== */}
             {activeTab === "dashboard" && (
               <div className="space-y-6">
                 {/* Stats Cards */}
@@ -680,22 +732,13 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            {/* ===== Users Tab ===== */}
+            {/* ===== Gestión de estudiantes ===== */}
             {activeTab === "users" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">Gestión de Estudiantes</h2>
                     <p className="text-gray-600">Administra todos los Estudiantes del sistema</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedItems.length > 0 && (
-                      <Button variant="destructive" size="sm" onClick={() => setShowDeleteDialog(true)}>
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Eliminar Seleccionados ({selectedItems.length})
-                      </Button>
-                    )}
-                    
                   </div>
                 </div>
 
@@ -719,9 +762,6 @@ export default function AdminDashboardComplete() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-[50px]">
-                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === filteredUsers.length && filteredUsers.length > 0} />
-                          </TableHead>
                           <TableHead>Usuario</TableHead>
                           <TableHead>Email</TableHead>
                           <TableHead>Programa</TableHead>
@@ -731,11 +771,8 @@ export default function AdminDashboardComplete() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredUsers.map((user) => (
+                        {paginatedUsers.map((user) => (
                           <TableRow key={user.id}>
-                            <TableCell>
-                              <Checkbox checked={selectedItems.includes(user.id)} onChange={() => handleSelectItem(user.id)} />
-                            </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-3">
                                 <span className="font-medium">{user.name}</span>
@@ -753,15 +790,36 @@ export default function AdminDashboardComplete() {
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem><Eye className="h-4 w-4 mr-2" />Ver Perfil</DropdownMenuItem>
-                                  <DropdownMenuItem><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-                                  <DropdownMenuItem className="text-red-600"><Trash2 className="h-4 w-4 mr-2" />Eliminar</DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={async () => {
+                                      try {
+                                        const res = await fetch(`/api/usuarios/${user.id}/assign-role`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ role: 'MONITOR' }),
+                                        });
+                                        if (res.ok) {
+                                          alert('Rol de Monitor asignado exitosamente');
+                                          // Refrescar la lista de usuarios
+                                          window.location.reload();
+                                        } else {
+                                          const error = await res.json();
+                                          alert(`Error: ${error.error}`);
+                                        }
+                                      } catch (err) {
+                                        console.error('Error asignando rol:', err);
+                                        alert('Error al asignar rol');
+                                      }
+                                    }}
+                                  >
+                                    <UserCheck className="h-4 w-4 mr-2" />Asignar Monitor
+                                  </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </TableCell>
                           </TableRow>
                         ))}
-                        {filteredUsers.length === 0 && (
+                        {paginatedUsers.length === 0 && (
                           <TableRow><TableCell colSpan={8} className="text-center text-sm text-gray-500">Sin registros</TableCell></TableRow>
                         )}
                       </TableBody>
@@ -769,15 +827,48 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{filteredUsers.length ? `1-${filteredUsers.length}` : "0"}</strong> de <strong>{users.length}</strong> usuarios
+                      Mostrando <strong>{paginatedUsers.length ? `${(currentPageUsers - 1) * pageSizeUsers + 1}-${Math.min(currentPageUsers * pageSizeUsers, filteredUsers.length)}` : "0"}</strong> de <strong>{filteredUsers.length}</strong> usuarios
                     </div>
                     <Pagination>
                       <PaginationContent>
-                        <PaginationItem><PaginationPrevious href="#" /></PaginationItem>
-                        <PaginationItem><PaginationLink href="#" isActive>1</PaginationLink></PaginationItem>
-                        <PaginationItem><PaginationLink href="#">2</PaginationLink></PaginationItem>
-                        <PaginationItem><PaginationEllipsis /></PaginationItem>
-                        <PaginationItem><PaginationNext href="#" /></PaginationItem>
+                        <PaginationItem>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPageUsers(prev => Math.max(1, prev - 1))}
+                            disabled={currentPageUsers === 1}
+                          >
+                            Anterior
+                          </Button>
+                        </PaginationItem>
+                        {Array.from({ length: Math.min(5, totalPagesUsers) }, (_, i) => {
+                          const page = Math.max(1, Math.min(totalPagesUsers - 4, currentPageUsers - 2)) + i
+                          if (page > totalPagesUsers) return null
+                          return (
+                            <PaginationItem key={page}>
+                              <PaginationLink
+                                onClick={() => setCurrentPageUsers(page)}
+                                isActive={page === currentPageUsers}
+                                className="cursor-pointer"
+                              >
+                                {page}
+                              </PaginationLink>
+                            </PaginationItem>
+                          )
+                        })}
+                        {totalPagesUsers > 5 && currentPageUsers < totalPagesUsers - 2 && (
+                          <PaginationItem><PaginationEllipsis /></PaginationItem>
+                        )}
+                        <PaginationItem>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPageUsers(prev => Math.min(totalPagesUsers, prev + 1))}
+                            disabled={currentPageUsers === totalPagesUsers}
+                          >
+                            Siguiente
+                          </Button>
+                        </PaginationItem>
                       </PaginationContent>
                     </Pagination>
                   </CardFooter>
@@ -785,23 +876,13 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            {/* ===== Monitors Tab ===== */}
+            {/* ===== Gestión de monitores ===== */}
             {activeTab === "monitors" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">Gestión de Monitores</h2>
                     <p className="text-gray-600">Administra los monitores académicos</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedItems.length > 0 && (
-                      <Button variant="destructive" size="sm" onClick={() => setShowDeleteDialog(true)}>
-                        <Trash2 className="h-4 w-4 mr-2" />Eliminar Seleccionados ({selectedItems.length})
-                      </Button>
-                    )}
-                    <Button size="sm" className="bg-red-800 hover:bg-red-900" onClick={() => setShowMonitorDialog(true)}>
-                      <Plus className="h-4 w-4 mr-2" />Nuevo Monitor
-                    </Button>
                   </div>
                 </div>
 
@@ -822,7 +903,7 @@ export default function AdminDashboardComplete() {
 
                 {/* Grid monitores */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredMonitors.map((monitor) => (
+                  {paginatedMonitors.map((monitor) => (
                     <Card key={monitor.id}>
                       <CardContent className="p-6">
                         <div className="flex items-start gap-4">
@@ -843,14 +924,6 @@ export default function AdminDashboardComplete() {
                               <div className="flex items-center gap-2"><Mail className="h-3 w-3" /><span>{monitor.email}</span></div>
                               {monitor.phone && <div className="flex items-center gap-2"><Phone className="h-3 w-3" /><span>{monitor.phone}</span></div>}
                             </div>
-                            <div className="mt-3">
-                              <p className="text-xs text-gray-500 mb-1">Materias:</p>
-                              <div className="flex flex-wrap gap-1">
-                                {(monitor.subjects ?? []).map((s, i) => (
-                                  <Badge key={i} variant="outline" className="text-xs">{s}</Badge>
-                                ))}
-                              </div>
-                            </div>
                           </div>
                         </div>
                         <div className="flex justify-between mt-4 pt-4 border-t border-gray-100">
@@ -858,8 +931,33 @@ export default function AdminDashboardComplete() {
                             <span className="font-medium">{monitor.totalSessions ?? 0}</span> sesiones
                           </div>
                           <div className="flex gap-2">
-                            <Button variant="outline" size="sm"><Eye className="h-3 w-3 mr-1" />Ver</Button>
-                            <Button variant="outline" size="sm"><Edit className="h-3 w-3 mr-1" />Editar</Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch(`/api/usuarios/${monitor.id}/remove-role`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ role: 'MONITOR' }),
+                                  });
+                                  if (res.ok) {
+                                    alert('Rol de Monitor removido exitosamente');
+                                    // Refrescar la lista de monitores
+                                    window.location.reload();
+                                  } else {
+                                    const error = await res.json();
+                                    alert(`Error: ${error.error}`);
+                                  }
+                                } catch (err) {
+                                  console.error('Error removiendo rol:', err);
+                                  alert('Error al remover rol');
+                                }
+                              }}
+                            >
+                              <UserX className="h-3 w-3 mr-1" />Quitar Monitor
+                            </Button>
                             {monitor.status === "Pendiente" && (
                               <Button size="sm" className="bg-green-600 hover:bg-green-700">
                                 <CheckCircle className="h-3 w-3 mr-1" />Aprobar
@@ -877,39 +975,64 @@ export default function AdminDashboardComplete() {
 
                 {/* Count */}
                 <div className="text-sm text-gray-500 text-center">
-                  Mostrando <strong>{filteredMonitors.length}</strong> de <strong>{monitors.length}</strong> monitores
+                  Mostrando <strong>{paginatedMonitors.length ? `${(currentPageMonitors - 1) * pageSizeMonitors + 1}-${Math.min(currentPageMonitors * pageSizeMonitors, filteredMonitors.length)}` : "0"}</strong> de <strong>{filteredMonitors.length}</strong> monitores
                 </div>
 
-                {/* Paginación dummy */}
+                {/* Paginación */}
                 <div className="flex items-center justify-center">
                   <Pagination>
                     <PaginationContent>
-                      <PaginationItem><PaginationPrevious href="#" /></PaginationItem>
-                      <PaginationItem><PaginationLink href="#" isActive>1</PaginationLink></PaginationItem>
-                      <PaginationItem><PaginationLink href="#">2</PaginationLink></PaginationItem>
-                      <PaginationItem><PaginationEllipsis /></PaginationItem>
-                      <PaginationItem><PaginationNext href="#" /></PaginationItem>
+                      <PaginationItem>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPageMonitors(prev => Math.max(1, prev - 1))}
+                          disabled={currentPageMonitors === 1}
+                        >
+                          Anterior
+                        </Button>
+                      </PaginationItem>
+                      {Array.from({ length: Math.min(5, totalPagesMonitors) }, (_, i) => {
+                        const page = Math.max(1, Math.min(totalPagesMonitors - 4, currentPageMonitors - 2)) + i
+                        if (page > totalPagesMonitors) return null
+                        return (
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              onClick={() => setCurrentPageMonitors(page)}
+                              isActive={page === currentPageMonitors}
+                              className="cursor-pointer"
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        )
+                      })}
+                      {totalPagesMonitors > 5 && currentPageMonitors < totalPagesMonitors - 2 && (
+                        <PaginationItem><PaginationEllipsis /></PaginationItem>
+                      )}
+                      <PaginationItem>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPageMonitors(prev => Math.min(totalPagesMonitors, prev + 1))}
+                          disabled={currentPageMonitors === totalPagesMonitors}
+                        >
+                          Siguiente
+                        </Button>
+                      </PaginationItem>
                     </PaginationContent>
                   </Pagination>
                 </div>
               </div>
             )}
 
-            {/* ===== Subjects Tab ===== */}
+            {/* ===== Gestión materias ===== */}
             {activeTab === "subjects" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-bold text-gray-900">Gestión de Materias</h2>
                     <p className="text-gray-600">Administra las materias disponibles para monitorías</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {selectedItems.length > 0 && (
-                      <Button variant="destructive" size="sm" onClick={() => setShowDeleteDialog(true)}>
-                        <Trash2 className="h-4 w-4 mr-2" />Eliminar Seleccionados ({selectedItems.length})
-                      </Button>
-                    )}
-                    
                   </div>
                 </div>
 
@@ -943,9 +1066,6 @@ export default function AdminDashboardComplete() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-[50px]">
-                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === filteredSubjects.length && filteredSubjects.length > 0} />
-                          </TableHead>
                           <TableHead>Materia</TableHead>
                           <TableHead>Código</TableHead>
                           <TableHead>Créditos</TableHead>
@@ -954,11 +1074,8 @@ export default function AdminDashboardComplete() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredSubjects.map((subject) => (
+                        {paginatedSubjects.map((subject) => (
                           <TableRow key={subject.id}>
-                            <TableCell>
-                              <Checkbox checked={selectedItems.includes(subject.id)} onChange={() => handleSelectItem(subject.id)} />
-                            </TableCell>
                             <TableCell className="font-medium">{subject.name}</TableCell>
                             <TableCell>{subject.code}</TableCell>
                             <TableCell>{subject.credits}</TableCell>
@@ -970,23 +1087,56 @@ export default function AdminDashboardComplete() {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {filteredSubjects.length === 0 && (
-                          <TableRow><TableCell colSpan={9} className="text-center text-sm text-gray-500">Sin registros</TableCell></TableRow>
+                        {paginatedSubjects.length === 0 && (
+                          <TableRow><TableCell colSpan={5} className="text-center text-sm text-gray-500">Sin registros</TableCell></TableRow>
                         )}
                       </TableBody>
                     </Table>
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{filteredSubjects.length ? `1-${filteredSubjects.length}` : "0"}</strong> de <strong>{subjects.length}</strong> materias
+                      Mostrando <strong>{paginatedSubjects.length ? `${(currentPageSubjects - 1) * pageSizeSubjects + 1}-${Math.min(currentPageSubjects * pageSizeSubjects, filteredSubjects.length)}` : "0"}</strong> de <strong>{filteredSubjects.length}</strong> materias
                     </div>
                     <Pagination>
                       <PaginationContent>
-                        <PaginationItem><PaginationPrevious href="#" /></PaginationItem>
-                        <PaginationItem><PaginationLink href="#" isActive>1</PaginationLink></PaginationItem>
-                        <PaginationItem><PaginationLink href="#">2</PaginationLink></PaginationItem>
-                        <PaginationItem><PaginationEllipsis /></PaginationItem>
-                        <PaginationItem><PaginationNext href="#" /></PaginationItem>
+                        <PaginationItem>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPageSubjects(prev => Math.max(1, prev - 1))}
+                            disabled={currentPageSubjects === 1}
+                          >
+                            Anterior
+                          </Button>
+                        </PaginationItem>
+                        {Array.from({ length: Math.min(5, totalPagesSubjects) }, (_, i) => {
+                          const page = Math.max(1, Math.min(totalPagesSubjects - 4, currentPageSubjects - 2)) + i
+                          if (page > totalPagesSubjects) return null
+                          return (
+                            <PaginationItem key={page}>
+                              <PaginationLink
+                                onClick={() => setCurrentPageSubjects(page)}
+                                isActive={page === currentPageSubjects}
+                                className="cursor-pointer"
+                              >
+                                {page}
+                              </PaginationLink>
+                            </PaginationItem>
+                          )
+                        })}
+                        {totalPagesSubjects > 5 && currentPageSubjects < totalPagesSubjects - 2 && (
+                          <PaginationItem><PaginationEllipsis /></PaginationItem>
+                        )}
+                        <PaginationItem>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPageSubjects(prev => Math.min(totalPagesSubjects, prev + 1))}
+                            disabled={currentPageSubjects === totalPagesSubjects}
+                          >
+                            Siguiente
+                          </Button>
+                        </PaginationItem>
                       </PaginationContent>
                     </Pagination>
                   </CardFooter>
@@ -994,7 +1144,7 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            {/* ===== Appointments Tab ===== */}
+            {/* ===== Gestión de citas ===== */}
             {activeTab === "appointments" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -1023,17 +1173,50 @@ export default function AdminDashboardComplete() {
                           <SelectItem value="cancelled">Canceladas</SelectItem>
                         </SelectContent>
                       </Select>
-                      <Select value={filterFaculty} onValueChange={setFilterFaculty}>
-                        <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por materia" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todas las materias</SelectItem>
-                          {subjects.map((subject) => (
-                            <SelectItem key={subject.id} value={subject.name}>
-                              {subject.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Popover open={openSubjectFilter} onOpenChange={setOpenSubjectFilter}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={openSubjectFilter}
+                            className="w-[250px] justify-between"
+                          >
+                            {filterFaculty === "all" ? "Todas las materias" : filterFaculty}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[250px] p-0">
+                          <Command>
+                            <CommandInput placeholder="Buscar materia..." />
+                            <CommandList>
+                              <CommandEmpty>No se encontraron materias.</CommandEmpty>
+                              <CommandGroup>
+                                <CommandItem
+                                  onSelect={() => {
+                                    setFilterFaculty("all")
+                                    setOpenSubjectFilter(false)
+                                  }}
+                                >
+                                  <Check className={cn("mr-2 h-4 w-4", filterFaculty === "all" ? "opacity-100" : "opacity-0")} />
+                                  Todas las materias
+                                </CommandItem>
+                                {subjects.map((subject) => (
+                                  <CommandItem
+                                    key={subject.id}
+                                    onSelect={() => {
+                                      setFilterFaculty(subject.name)
+                                      setOpenSubjectFilter(false)
+                                    }}
+                                  >
+                                    <Check className={cn("mr-2 h-4 w-4", filterFaculty === subject.name ? "opacity-100" : "opacity-0")} />
+                                    {subject.name}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
                       <Select value={filterDate} onValueChange={setFilterDate}>
                         <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filtrar por fecha" /></SelectTrigger>
                         <SelectContent>
@@ -1054,9 +1237,6 @@ export default function AdminDashboardComplete() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-[50px]">
-                            <Checkbox onCheckedChange={(c) => handleSelectAll(c === true)} checked={selectedItems.length === filteredAppointments.length && filteredAppointments.length > 0} />
-                          </TableHead>
                           <TableHead>Estudiante</TableHead>
                           <TableHead>Monitor</TableHead>
                           <TableHead>Materia</TableHead>
@@ -1068,11 +1248,8 @@ export default function AdminDashboardComplete() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredAppointments.map((appointment) => (
+                        {paginatedAppointments.map((appointment) => (
                           <TableRow key={appointment.id}>
-                            <TableCell>
-                              <Checkbox checked={selectedItems.includes(appointment.id)} onChange={() => handleSelectItem(appointment.id)} />
-                            </TableCell>
                             <TableCell>
                               <div className="font-medium">{appointment.student.name}</div>
                               <div className="text-xs text-gray-500">{appointment.student.program ?? "—"}</div>
@@ -1094,8 +1271,6 @@ export default function AdminDashboardComplete() {
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem><Eye className="h-4 w-4 mr-2" />Ver Detalles</DropdownMenuItem>
-                                  <DropdownMenuItem><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
                                   {appointment.status === "pendiente" && (<DropdownMenuItem><CheckCircle className="h-4 w-4 mr-2" />Confirmar</DropdownMenuItem>)}
                                   <DropdownMenuItem className="text-red-600"><XCircle className="h-4 w-4 mr-2" />Cancelar</DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -1103,7 +1278,7 @@ export default function AdminDashboardComplete() {
                             </TableCell>
                           </TableRow>
                         ))}
-                        {filteredAppointments.length === 0 && (
+                        {paginatedAppointments.length === 0 && (
                           <TableRow><TableCell colSpan={8} className="text-center text-sm text-gray-500">Sin registros</TableCell></TableRow>
                         )}
                       </TableBody>
@@ -1111,15 +1286,48 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{filteredAppointments.length ? `1-${filteredAppointments.length}` : "0"}</strong> de <strong>{appointments.length}</strong> citas
+                      Mostrando <strong>{paginatedAppointments.length ? `${(currentPageAppointments - 1) * pageSizeAppointments + 1}-${Math.min(currentPageAppointments * pageSizeAppointments, filteredAppointments.length)}` : "0"}</strong> de <strong>{filteredAppointments.length}</strong> citas
                     </div>
                     <Pagination>
                       <PaginationContent>
-                        <PaginationItem><PaginationPrevious href="#" /></PaginationItem>
-                        <PaginationItem><PaginationLink href="#" isActive>1</PaginationLink></PaginationItem>
-                        <PaginationItem><PaginationLink href="#">2</PaginationLink></PaginationItem>
-                        <PaginationItem><PaginationEllipsis /></PaginationItem>
-                        <PaginationItem><PaginationNext href="#" /></PaginationItem>
+                        <PaginationItem>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPageAppointments(prev => Math.max(1, prev - 1))}
+                            disabled={currentPageAppointments === 1}
+                          >
+                            Anterior
+                          </Button>
+                        </PaginationItem>
+                        {Array.from({ length: Math.min(5, totalPagesAppointments) }, (_, i) => {
+                          const page = Math.max(1, Math.min(totalPagesAppointments - 4, currentPageAppointments - 2)) + i
+                          if (page > totalPagesAppointments) return null
+                          return (
+                            <PaginationItem key={page}>
+                              <PaginationLink
+                                onClick={() => setCurrentPageAppointments(page)}
+                                isActive={page === currentPageAppointments}
+                                className="cursor-pointer"
+                              >
+                                {page}
+                              </PaginationLink>
+                            </PaginationItem>
+                          )
+                        })}
+                        {totalPagesAppointments > 5 && currentPageAppointments < totalPagesAppointments - 2 && (
+                          <PaginationItem><PaginationEllipsis /></PaginationItem>
+                        )}
+                        <PaginationItem>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPageAppointments(prev => Math.min(totalPagesAppointments, prev + 1))}
+                            disabled={currentPageAppointments === totalPagesAppointments}
+                          >
+                            Siguiente
+                          </Button>
+                        </PaginationItem>
                       </PaginationContent>
                     </Pagination>
                   </CardFooter>
@@ -1127,7 +1335,7 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            {/* ===== Reports Tab (plantilla, sin números ficticios) ===== */}
+            {/* ===== Reportes (plantilla, sin números ficticios) ===== */}
             {activeTab === "reports" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -1270,7 +1478,7 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            {/* ===== Settings Tab (mantiene estructura; quité valores “institucionales” estrictos) ===== */}
+            {/* ===== Configuración (mantiene estructura; quité valores “institucionales” estrictos) ===== */}
             {activeTab === "settings" && (
               <div className="space-y-6">
                 <div>
@@ -1405,45 +1613,7 @@ export default function AdminDashboardComplete() {
 
       
 
-      {/* Nuevo Monitor */}
-      <Dialog open={showMonitorDialog} onOpenChange={setShowMonitorDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Nuevo Monitor</DialogTitle>
-            <DialogDescription>Agrega un nuevo monitor al sistema</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label htmlFor="firstName">Nombres</Label><Input id="firstName" placeholder="Nombres" /></div>
-              <div className="space-y-2"><Label htmlFor="lastName">Apellidos</Label><Input id="lastName" placeholder="Apellidos" /></div>
-            </div>
-            <div className="space-y-2"><Label htmlFor="email">Correo Electrónico</Label><Input id="email" type="email" placeholder="monitor@dominio.com" /></div>
-            <div className="space-y-2"><Label htmlFor="phone">Teléfono</Label><Input id="phone" placeholder="+57 300 000 0000" /></div>
-            <div className="space-y-2"><Label htmlFor="experience">Experiencia</Label><Input id="experience" placeholder="Ej: 2 años" /></div>
-            <div className="space-y-2">
-              <Label>Materias</Label>
-              <div className="flex flex-wrap gap-2">
-                {/* TODO: Lista de materias desde API */}
-                {subjects.map((subject) => (<Badge key={subject.id} variant="outline" className="cursor-pointer hover:bg-red-50">{subject.name}</Badge>))}
-                {subjects.length === 0 && <span className="text-xs text-gray-500">Sin materias aún</span>}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Especialidades</Label>
-              <Input placeholder="Ej: Límites, Derivadas, Integrales" />
-              <p className="text-xs text-gray-500">Separa las especialidades con comas</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="sendCredentials" />
-              <label htmlFor="sendCredentials" className="text-sm">Enviar credenciales por correo electrónico</label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowMonitorDialog(false)}>Cancelar</Button>
-            <Button className="bg-red-800 hover:bg-red-900"><Plus className="h-4 w-4 mr-2" />Crear Monitor</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
 
       
 
