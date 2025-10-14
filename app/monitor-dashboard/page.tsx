@@ -22,6 +22,20 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import { cn } from "@/lib/utils"
+import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
@@ -63,6 +77,9 @@ import {
   EyeOff,
   Search,
   Filter,
+  ChevronsUpDown,
+  Check,
+  X,
 } from "lucide-react"
 
 function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (tab: string) => void }) {
@@ -189,6 +206,7 @@ export default function MonitorDashboard() {
   const [userId, setUserId] = useState<number | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
+  const [openSubjectFilter, setOpenSubjectFilter] = useState(false)
 
   // Load user data and available subjects on component mount
   useEffect(() => {
@@ -1401,7 +1419,7 @@ export default function MonitorDashboard() {
         </SidebarInset>
       </div>
 
-      {/* Add/Edit Availability Dialog */}
+      {/* agregar y editar horarios monitores */}
       <Dialog open={showAvailabilityDialog} onOpenChange={(open) => {
         setShowAvailabilityDialog(open)
         if (!open) {
@@ -1497,27 +1515,61 @@ export default function MonitorDashboard() {
 
             <div className="space-y-2">
               <Label>Materias</Label>
-              <ScrollArea className="h-32 w-full border rounded-md p-2">
-                <div className="flex flex-wrap gap-2">
-                  {availableSubjects.map((subject) => (
-                    <Badge
-                      key={subject.id}
-                      variant={newAvailability.subjects.includes(subject.name) ? "default" : "outline"}
-                      className={`cursor-pointer ${
-                        newAvailability.subjects.includes(subject.name) ? "bg-red-800 hover:bg-red-900" : "hover:bg-red-50"
-                      }`}
-                      onClick={() => {
-                        const newSubjects = newAvailability.subjects.includes(subject.name)
-                          ? newAvailability.subjects.filter((s) => s !== subject.name)
-                          : [...newAvailability.subjects, subject.name]
-                        setNewAvailability({ ...newAvailability, subjects: newSubjects })
-                      }}
-                    >
-                      {subject.name}
+              <Popover open={openSubjectFilter} onOpenChange={setOpenSubjectFilter}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={openSubjectFilter}
+                    className="w-full justify-between"
+                  >
+                    {newAvailability.subjects.length > 0
+                      ? `${newAvailability.subjects.length} materia(s) seleccionada(s)`
+                      : "Seleccionar materias..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0">
+                  <Command>
+                    <CommandInput placeholder="Buscar materia..." />
+                    <CommandList>
+                      <CommandEmpty>No se encontraron materias.</CommandEmpty>
+                      <CommandGroup>
+                        {availableSubjects.map((subject) => (
+                          <CommandItem
+                            key={subject.id}
+                            onSelect={() => {
+                              const newSubjects = newAvailability.subjects.includes(subject.name)
+                                ? newAvailability.subjects.filter((s) => s !== subject.name)
+                                : [...newAvailability.subjects, subject.name]
+                              setNewAvailability({ ...newAvailability, subjects: newSubjects })
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", newAvailability.subjects.includes(subject.name) ? "opacity-100" : "opacity-0")} />
+                            {subject.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {newAvailability.subjects.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {newAvailability.subjects.map((subjectName) => (
+                    <Badge key={subjectName} variant="default" className="bg-red-800 hover:bg-red-900">
+                      {subjectName}
+                      <X
+                        className="ml-1 h-3 w-3 cursor-pointer"
+                        onClick={() => {
+                          const newSubjects = newAvailability.subjects.filter((s) => s !== subjectName)
+                          setNewAvailability({ ...newAvailability, subjects: newSubjects })
+                        }}
+                      />
                     </Badge>
                   ))}
                 </div>
-              </ScrollArea>
+              )}
             </div>
           </div>
 
