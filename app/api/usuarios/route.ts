@@ -15,12 +15,13 @@ export async function GET(req: Request) {
         u.correo             AS email,
         u.programa,
         u.semestre,
+        u.created_at,
         GROUP_CONCAT(r.nombre) AS roles
       FROM usuarios u
       JOIN usuario_rol ur ON ur.usuario_id = u.id
       JOIN roles r        ON r.id = ur.rol_id
       WHERE r.nombre IN ('ESTUDIANTE','MONITOR')
-      GROUP BY u.id, u.nombre_completo, u.correo, u.programa, u.semestre
+      GROUP BY u.id, u.nombre_completo, u.correo, u.programa, u.semestre, u.created_at
     `;
 
     const sql = rol === "ESTUDIANTE" || rol === "MONITOR"
