@@ -41,10 +41,15 @@ export async function GET(req: Request) {
           endTime: slot.endTime,
           location: slot.location,
           subjects: [],
-          isActive: slot.isActive === 1,
+          isActive: Boolean(slot.isActive === 1),
         });
       } else {
-        slotMap.get(key).ids.push(slot.id.toString());
+        const existingSlot = slotMap.get(key);
+        existingSlot.ids.push(slot.id.toString());
+        // Update isActive to true if any slot in the group is active
+        if (slot.isActive === 1) {
+          existingSlot.isActive = true;
+        }
       }
       if (slot.subject) {
         slotMap.get(key).subjects.push(slot.subject);

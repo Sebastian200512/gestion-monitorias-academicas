@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,6 +35,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
 import {
   Sidebar,
   SidebarContent,
@@ -171,8 +172,6 @@ interface MonitorAppointment {
   location: string
   status: "confirmada" | "pendiente" | "completada" | "cancelada"
   details: string
-  studentNotes?: string
-  monitorNotes?: string
   createdAt: string
 }
 
@@ -186,17 +185,27 @@ interface AvailabilitySlot {
   isActive: boolean
 }
 
+interface Notification {
+  id: string
+  type: "appointment_reminder" | "appointment_confirmed" | "appointment_cancelled" | "appointment_completed" | "system" | "monitor_message"
+  title: string
+  message: string
+  date: string
+  read: boolean
+  appointmentId?: string
+  actionUrl?: string
+}
+
 const API_BASE = "/api"
 
 export default function MonitorDashboard() {
   const router = useRouter()
+  const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("home")
   const [showAvailabilityDialog, setShowAvailabilityDialog] = useState(false)
   const [showAppointmentDialog, setShowAppointmentDialog] = useState(false)
-  const [showNotesDialog, setShowNotesDialog] = useState(false)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState<MonitorAppointment | null>(null)
-  const [monitorNotes, setMonitorNotes] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [showStudentProfileDialog, setShowStudentProfileDialog] = useState(false)
   const [selectedStudentProfile, setSelectedStudentProfile] = useState<any>(null)
@@ -207,6 +216,29 @@ export default function MonitorDashboard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
   const [openSubjectFilter, setOpenSubjectFilter] = useState(false)
+  const [inFlight, setInFlight] = useState<Record<string, boolean>>({})
+
+  // Notifications states
+  const [userNotifications, setUserNotifications] = useState<Notification[]>([])
+  const [notifications, setNotifications] = useState({
+    emailReminders: false,
+    smsReminders: false,
+    appointmentConfirmations: false,
+    weeklyDigest: false,
+    promotions: false,
+  })
+  const [privacy, setPrivacy] = useState({
+    profileVisibility: "private",
+    showEmail: false,
+    showPhone: false,
+    allowDirectMessages: false,
+  })
+  const [preferences, setPreferences] = useState({
+    preferredLanguage: "es",
+    timezone: "America/Bogota",
+    defaultReminderTime: "30",
+    favoriteSubjects: [] as string[],
+  })
 
   // Load user data and available subjects on component mount
   useEffect(() => {
@@ -214,15 +246,16 @@ export default function MonitorDashboard() {
     if (storedUser) {
       const parsedUser = JSON.parse(storedUser)
       setUserId(parsedUser.id)
-      // Set initial monitor data from user
-      const [firstName, ...lastNameParts] = parsedUser.nombre.split(" ")
+      // Set initial monitor data from user - based on usuarios table schema
+      const fullName = parsedUser.nombre_completo || parsedUser.nombre || ""
+      const [firstName, ...lastNameParts] = fullName.split(" ")
       setMonitorData({
         firstName: firstName || "",
         lastName: lastNameParts.join(" ") || "",
-        email: parsedUser.email || "",
-        phone: parsedUser.telefono || "",
-        employeeId: parsedUser.id.toString(),
-        subjects: [],
+        email: parsedUser.correo || parsedUser.email || "",
+        program: parsedUser.programa || "",
+        semester: (parsedUser.semestre || parsedUser.semestre)?.toString() || "",
+        code: parsedUser.codigo || "",
       })
     }
 
@@ -248,11 +281,20 @@ export default function MonitorDashboard() {
       if (!userId) return
 
       try {
-        // Fetch monitor profile
-        const profileResponse = await fetch(`${API_BASE}/monitor/profile?userId=${userId}`)
+        // Fetch monitor profile from usuarios table
+        const profileResponse = await fetch(`${API_BASE}/usuarios/${userId}`)
         if (profileResponse.ok) {
-          const profileData = await profileResponse.json()
-          setMonitorData(prev => ({ ...prev, ...profileData }))
+          const userData = await profileResponse.json()
+          const fullName = userData.nombre_completo || userData.nombre || ""
+          const [firstName, ...lastNameParts] = fullName.split(" ")
+          setMonitorData({
+            firstName: firstName || "",
+            lastName: lastNameParts.join(" ") || "",
+            email: userData.correo || userData.email || "",
+            program: userData.programa || "",
+            semester: (userData.semestre || userData.semestre)?.toString() || "",
+            code: userData.codigo || "",
+          })
         }
 
     // Fetch appointments
@@ -279,8 +321,6 @@ export default function MonitorDashboard() {
           location: apt.ubicacion,
           status: apt.estado,
           details: apt.detalles || '',
-          studentNotes: apt.notas_estudiante,
-          monitorNotes: apt.notas_monitor,
           createdAt: apt.created_at,
         }))
         setAppointments(appointmentsData)
@@ -295,6 +335,58 @@ export default function MonitorDashboard() {
           const availabilityData = await availabilityResponse.json()
           setAvailabilitySlots(availabilityData)
         }
+
+        // Cargar notifications settings
+        const notificationsRes = await fetch(`${API_BASE}/user/notifications`)
+        if (notificationsRes.ok) {
+          const notificationsData = await notificationsRes.json()
+          setNotifications(notificationsData)
+        }
+
+        // Cargar privacy settings
+        const privacyRes = await fetch(`${API_BASE}/user/privacy`)
+        if (privacyRes.ok) {
+          const privacyData = await privacyRes.json()
+          setPrivacy(privacyData)
+        }
+
+        // Cargar preferences
+        const preferencesRes = await fetch(`${API_BASE}/user/preferences`)
+        if (preferencesRes.ok) {
+          const preferencesData = await preferencesRes.json()
+          setPreferences(preferencesData)
+        }
+
+        // Cargar notifications (mock data por ahora)
+        const mockNotifications: Notification[] = [
+          {
+            id: "1",
+            type: "appointment_reminder",
+            title: "Recordatorio de cita",
+            message: "Tienes una monitoría programada para mañana a las 10:00 AM",
+            date: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 horas atrás
+            read: false,
+            appointmentId: "1"
+          },
+          {
+            id: "2",
+            type: "appointment_confirmed",
+            title: "Cita confirmada",
+            message: "Tu cita de Cálculo Diferencial ha sido confirmada por el estudiante",
+            date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 día atrás
+            read: true,
+            appointmentId: "2"
+          },
+          {
+            id: "3",
+            type: "system",
+            title: "Bienvenido al sistema",
+            message: "¡Bienvenido a Monitorías UCP! Explora las funcionalidades disponibles.",
+            date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 1 semana atrás
+            read: true
+          }
+        ]
+        setUserNotifications(mockNotifications)
       } catch (error) {
         console.error("Error fetching data:", error)
       }
@@ -303,14 +395,14 @@ export default function MonitorDashboard() {
     fetchData()
   }, [userId])
 
-  // Monitor profile data
+  // Monitor profile data - based on usuarios table schema
   const [monitorData, setMonitorData] = useState({
     firstName: "",
     lastName: "",
     email: "",
-    phone: "",
-    employeeId: "",
-    subjects: [],
+    program: "",
+    semester: "",
+    code: "",
   })
 
   // Availability slots
@@ -324,6 +416,37 @@ export default function MonitorDashboard() {
     location: "",
     subjects: [] as string[],
   })
+
+  // Helper function to format time to 12-hour format
+  const formatTime12Hour = (time24: string) => {
+    if (!time24) return ""
+    const [hours, minutes] = time24.split(':').map(Number)
+    const date = new Date()
+    date.setHours(hours, minutes)
+    return date.toLocaleTimeString('es-CO', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    }).toLowerCase()
+  }
+
+  // Helper function to add 2 hours to a time string
+  const addTwoHours = (time24: string) => {
+    if (!time24) return ""
+    const [hours, minutes] = time24.split(':').map(Number)
+    const newHours = hours + 2
+    return `${newHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+  }
+
+  // Handle start time change - auto calculate end time
+  const handleStartTimeChange = (startTime: string) => {
+    const endTime = addTwoHours(startTime)
+    setNewAvailability(prev => ({
+      ...prev,
+      startTime,
+      endTime
+    }))
+  }
 
   const [editingSlot, setEditingSlot] = useState<AvailabilitySlot | null>(null)
   const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
@@ -362,6 +485,44 @@ export default function MonitorDashboard() {
 
   const handleAddAvailability = async () => {
     if (!userId || newAvailability.subjects.length === 0) return
+
+    // Validate 2-hour duration
+    if (!newAvailability.startTime || !newAvailability.endTime) {
+      toast({
+        title: "Error",
+        description: "Debe seleccionar una hora de inicio",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const expectedEndTime = addTwoHours(newAvailability.startTime)
+    if (newAvailability.endTime !== expectedEndTime) {
+      toast({
+        title: "Error",
+        description: "La duración de la disponibilidad debe ser de 2 horas",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check for overlapping availability
+    const hasOverlap = availabilitySlots.some(slot =>
+      slot.day === newAvailability.day &&
+      slot.isActive &&
+      ((newAvailability.startTime >= slot.startTime && newAvailability.startTime < slot.endTime) ||
+       (newAvailability.endTime > slot.startTime && newAvailability.endTime <= slot.endTime) ||
+       (newAvailability.startTime <= slot.startTime && newAvailability.endTime >= slot.endTime))
+    )
+
+    if (hasOverlap) {
+      toast({
+        title: "Error",
+        description: "Ya tienes una disponibilidad en este rango horario",
+        variant: "destructive",
+      })
+      return
+    }
 
     try {
       // Create slots for each selected subject
@@ -415,8 +576,18 @@ export default function MonitorDashboard() {
         subjects: [],
       })
       setShowAvailabilityDialog(false)
+
+      toast({
+        title: "Disponibilidad agregada",
+        description: "La disponibilidad ha sido creada exitosamente",
+      })
     } catch (error) {
       console.error("Error adding availability:", error)
+      toast({
+        title: "Error",
+        description: "Error al agregar la disponibilidad",
+        variant: "destructive",
+      })
     }
   }
 
@@ -463,6 +634,45 @@ export default function MonitorDashboard() {
 
   const handleSaveEditAvailability = async () => {
     if (!editingSlot || !userId) return
+
+    // Validate 2-hour duration
+    if (!newAvailability.startTime || !newAvailability.endTime) {
+      toast({
+        title: "Error",
+        description: "Debe seleccionar una hora de inicio",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const expectedEndTime = addTwoHours(newAvailability.startTime)
+    if (newAvailability.endTime !== expectedEndTime) {
+      toast({
+        title: "Error",
+        description: "La duración de la disponibilidad debe ser de 2 horas",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check for overlapping availability (excluding current slot)
+    const hasOverlap = availabilitySlots.some(slot =>
+      slot.ids.join('-') !== editingSlot.ids.join('-') && // Exclude current slot
+      slot.day === newAvailability.day &&
+      slot.isActive &&
+      ((newAvailability.startTime >= slot.startTime && newAvailability.startTime < slot.endTime) ||
+       (newAvailability.endTime > slot.startTime && newAvailability.endTime <= slot.endTime) ||
+       (newAvailability.startTime <= slot.startTime && newAvailability.endTime >= slot.endTime))
+    )
+
+    if (hasOverlap) {
+      toast({
+        title: "Error",
+        description: "Ya tienes una disponibilidad en este rango horario",
+        variant: "destructive",
+      })
+      return
+    }
 
     if (!confirm("¿Estás seguro de que quieres editar esta disponibilidad?")) return
 
@@ -549,24 +759,22 @@ export default function MonitorDashboard() {
 
       setEditingSlot(null)
       setShowAvailabilityDialog(false)
+
+      toast({
+        title: "Disponibilidad actualizada",
+        description: "La disponibilidad ha sido actualizada exitosamente",
+      })
     } catch (error) {
       console.error("Error editing availability:", error)
+      toast({
+        title: "Error",
+        description: "Error al actualizar la disponibilidad",
+        variant: "destructive",
+      })
     }
   }
 
-  const handleAddNotes = (appointment: MonitorAppointment) => {
-    setSelectedAppointment(appointment)
-    setMonitorNotes(appointment.monitorNotes || "")
-    setShowNotesDialog(true)
-  }
 
-  const handleSaveNotes = () => {
-    // Aquí iría la lógica para guardar las notas
-    console.log("Saving notes for appointment:", selectedAppointment?.id, monitorNotes)
-    setShowNotesDialog(false)
-    setSelectedAppointment(null)
-    setMonitorNotes("")
-  }
 
   const handleChangePassword = () => {
     if (newPassword !== confirmPassword) {
@@ -666,7 +874,81 @@ export default function MonitorDashboard() {
     }
   }
 
-  const upcomingAppointments = appointments.filter((apt) => apt.status !== "completada")
+  const handleToggleAvailability = useCallback(async (slot: AvailabilitySlot, checked: boolean) => {
+    const slotKey = slot.ids.join('.')
+
+    // Prevent multiple clicks
+    if (inFlight[slotKey]) return
+
+    setInFlight(prev => ({ ...prev, [slotKey]: true }))
+
+    const newEstado = checked ? "Activa" : "Inactiva"
+
+    // Optimistic update
+    const previousSlots = [...availabilitySlots]
+    setAvailabilitySlots(prev => prev.map(s =>
+      s.ids.some(id => slot.ids.includes(id)) ? { ...s, isActive: checked } : s
+    ))
+
+    try {
+      const response = await fetch(`${API_BASE}/disponibilidades/estado`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: slot.ids, estado: newEstado })
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        // Refetch to ensure consistency
+        if (userId) {
+          const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`, {
+            cache: 'no-store'
+          })
+          if (availabilityResponse.ok) {
+            const availabilityData = await availabilityResponse.json()
+            setAvailabilitySlots(availabilityData)
+          }
+        }
+
+        toast({
+          title: "Disponibilidad actualizada",
+          description: `La disponibilidad ha sido ${checked ? 'activada' : 'desactivada'} exitosamente.`,
+        })
+      } else {
+        // Rollback on error
+        setAvailabilitySlots(previousSlots)
+        toast({
+          title: "Error",
+          description: result.msg || "No se pudo actualizar la disponibilidad",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error toggling availability:", error)
+      // Rollback on error
+      setAvailabilitySlots(previousSlots)
+      toast({
+        title: "Error",
+        description: "Error interno del servidor",
+        variant: "destructive",
+      })
+    } finally {
+      setInFlight(prev => ({ ...prev, [slotKey]: false }))
+    }
+  }, [availabilitySlots, userId, inFlight, toast])
+
+  const upcomingAppointments = appointments.filter((apt) => {
+    const now = new Date()
+    const appointmentDate = new Date(apt.date)
+    const appointmentEndTime = new Date(`${apt.date}T${apt.endTime}`)
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const appointmentDay = new Date(appointmentDate.getFullYear(), appointmentDate.getMonth(), appointmentDate.getDate())
+
+    // Próximas: fecha_cita > hoy o fecha_cita === hoy y hora_fin >= ahora
+    return apt.status !== "completada" &&
+           (appointmentDay > today || (appointmentDay.getTime() === today.getTime() && appointmentEndTime >= now))
+  })
   const completedAppointments = appointments.filter((apt) => apt.status === "completada")
 
   // Filter functions
@@ -737,7 +1019,13 @@ export default function MonitorDashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-gray-600">Horas Este Mes</p>
-                  <p className="text-2xl font-bold text-gray-900">0</p>
+                          <p className="text-2xl font-bold text-gray-900">
+                            {completedAppointments.reduce((sum, apt) => {
+                              const start = parseInt(apt.time.split(':')[0])
+                              const end = parseInt(apt.endTime.split(':')[0])
+                              return sum + (end - start)
+                            }, 0)}
+                          </p>
                         </div>
                         <Clock className="h-8 w-8 text-amber-600" />
                       </div>
@@ -749,7 +1037,9 @@ export default function MonitorDashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-gray-600">Estudiantes</p>
-                  <p className="text-2xl font-bold text-gray-900">0</p>
+                          <p className="text-2xl font-bold text-gray-900">
+                            {new Set(appointments.map(apt => apt.student.name)).size}
+                          </p>
                         </div>
                         <Users className="h-8 w-8 text-red-600" />
                       </div>
@@ -800,7 +1090,13 @@ export default function MonitorDashboard() {
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
                           <span>Horas trabajadas:</span>
-                          <span className="font-medium">{completedAppointments.reduce((sum, apt) => sum + (parseInt(apt.endTime.split(':')[0]) - parseInt(apt.time.split(':')[0])), 0)}h</span>
+                          <span className="font-medium">
+                            {completedAppointments.reduce((sum, apt) => {
+                              const start = parseInt(apt.time.split(':')[0])
+                              const end = parseInt(apt.endTime.split(':')[0])
+                              return sum + (end - start)
+                            }, 0)}h
+                          </span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span>Estudiantes atendidos:</span>
@@ -878,7 +1174,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* Appointments Tab */}
+            {/* mis citas */}
             {activeTab === "appointments" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -967,11 +1263,7 @@ export default function MonitorDashboard() {
                                       <span>{appointment.location}</span>
                                     </div>
                                   </div>
-                                  {appointment.studentNotes && (
-                                    <div className="text-sm text-gray-600 mt-1">
-                                      <strong>Notas del estudiante:</strong> {appointment.studentNotes}
-                                    </div>
-                                  )}
+
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
@@ -986,6 +1278,7 @@ export default function MonitorDashboard() {
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
+
                                     {appointment.status === "pendiente" && (
                                       <DropdownMenuItem onClick={() => handleConfirmAppointment(appointment)}>
                                         <CheckCircle className="h-4 w-4 mr-2" />
@@ -1020,11 +1313,6 @@ export default function MonitorDashboard() {
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
                             <div className="flex items-start gap-4">
-                              <img
-                                src={appointment.student.photo || "/placeholder.svg"}
-                                alt={appointment.student.name}
-                                className="w-16 h-16 rounded-full object-cover"
-                              />
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
                                   <h3 className="font-medium text-gray-900">{appointment.student.name}</h3>
@@ -1047,11 +1335,7 @@ export default function MonitorDashboard() {
                                     </span>
                                   </div>
                                 </div>
-                                {appointment.monitorNotes && (
-                                  <div className="text-sm text-gray-600 bg-blue-50 p-2 rounded mt-2">
-                                    <strong>Tus notas:</strong> {appointment.monitorNotes}
-                                  </div>
-                                )}
+
                               </div>
                             </div>
                             <Badge className={getStatusColor(appointment.status)}>
@@ -1070,11 +1354,6 @@ export default function MonitorDashboard() {
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
                             <div className="flex items-start gap-4">
-                              <img
-                                src={appointment.student.photo || "/placeholder.svg"}
-                                alt={appointment.student.name}
-                                className="w-16 h-16 rounded-full object-cover"
-                              />
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
                                   <h3 className="font-medium text-gray-900">{appointment.student.name}</h3>
@@ -1112,7 +1391,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* Availability Tab */}
+            {/* disponibilidades */}
             {activeTab === "availability" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -1127,18 +1406,29 @@ export default function MonitorDashboard() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {availabilitySlots.map((slot) => (
-                    <Card key={slot.ids.join('-')}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between mb-3">
-                          <div>
-                            <h3 className="font-medium text-gray-900">{slot.day}</h3>
-                            <p className="text-sm text-gray-600">
-                              {slot.startTime} - {slot.endTime}
-                            </p>
+                  {availabilitySlots.map((slot) => {
+                    const slotKey = slot.ids.join('.')
+                    return (
+                      <Card key={slotKey}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <h3 className="font-medium text-gray-900">{slot.day}</h3>
+                              <p className="text-sm text-gray-600">
+                                {formatTime12Hour(slot.startTime)} - {formatTime12Hour(slot.endTime)}
+                              </p>
+                            </div>
+                            <div className="relative z-10">
+                              <Switch
+                                checked={Boolean(slot.isActive)}
+                                disabled={inFlight[slotKey]}
+                                onCheckedChange={(checked) => {
+                                  console.log('toggle', { slotKey, before: slot.isActive, checked })
+                                  handleToggleAvailability(slot, checked)
+                                }}
+                              />
+                            </div>
                           </div>
-                          <Switch checked={slot.isActive} onCheckedChange={() => {}} />
-                        </div>
                         <div className="space-y-2 text-sm text-gray-600">
                           <div className="flex items-center gap-1">
                             <MapPin className="h-3 w-3" />
@@ -1173,7 +1463,7 @@ export default function MonitorDashboard() {
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}
@@ -1213,7 +1503,13 @@ export default function MonitorDashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm text-gray-600">Horas Totales</p>
-                          <p className="text-2xl font-bold text-gray-900">{completedAppointments.reduce((sum, apt) => sum + (parseInt(apt.endTime.split(':')[0]) - parseInt(apt.time.split(':')[0])), 0)}</p>
+                          <p className="text-2xl font-bold text-gray-900">
+                            {completedAppointments.reduce((sum, apt) => {
+                              const start = parseInt(apt.time.split(':')[0])
+                              const end = parseInt(apt.endTime.split(':')[0])
+                              return sum + (end - start)
+                            }, 0)}
+                          </p>
                           
                         </div>
                         <Clock className="h-8 w-8 text-red-600" />
@@ -1251,61 +1547,25 @@ export default function MonitorDashboard() {
                   </CardContent>
                 </Card>
 
-                {/* Subject Distribution */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Distribución por Materia</CardTitle>
-                      <CardDescription>Sesiones por asignatura</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        {monitorData.subjects.length > 0 ? monitorData.subjects.map((subject, index) => {
-                          const count = completedAppointments.filter(apt => apt.subject === subject).length
-                          const total = completedAppointments.length
-                          const percentage = total > 0 ? (count / total) * 100 : 0
-                          return (
-                            <div key={subject} className="flex items-center justify-between">
-                              <span className="text-sm text-gray-600">{subject}</span>
-                              <div className="flex items-center gap-2">
-                                <div className="w-24 bg-gray-200 rounded-full h-2">
-                                  <div className={index % 2 === 0 ? "bg-red-800" : "bg-amber-600"} style={{ width: `${percentage}%` }}></div>
-                                </div>
-                                <span className="text-sm font-medium">{count}</span>
-                              </div>
-                            </div>
-                          )
-                        }) : (
-                          <p className="text-sm text-gray-500">No hay datos disponibles</p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  
-                </div>
+                
               </div>
             )}
 
-            {/* Settings Tab */}
+            {/* Configuracion */}
             {activeTab === "settings" && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">Configuración</h2>
-                  <p className="text-gray-600">Gestiona tu perfil y preferencias como monitor</p>
-                </div>
-
+              <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="profile" className="space-y-6">
-                  <TabsList className="grid w-full grid-cols-3 max-w-md">
+                  <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
-                    <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
+                    <TabsTrigger value="preferences">Preferencias</TabsTrigger>
                   </TabsList>
 
+                  {/* Profile Tab */}
                   <TabsContent value="profile" className="space-y-6">
                     <Card>
                       <CardHeader>
                         <CardTitle>Información Personal</CardTitle>
-                        <CardDescription>Actualiza tu información de perfil</CardDescription>
+                        <CardDescription>Actualiza tu información de perfil y datos académicos</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-6">
                         
@@ -1314,94 +1574,90 @@ export default function MonitorDashboard() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="firstName">Nombres</Label>
-                            <Input
-                              id="firstName"
-                              value={monitorData.firstName}
-                              onChange={(e) => setMonitorData({ ...monitorData, firstName: e.target.value })}
-                            />
+                            <Input id="firstName" type="text" value={monitorData.firstName || ""} disabled />
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="lastName">Apellidos</Label>
-                            <Input
-                              id="lastName"
-                              value={monitorData.lastName}
-                              onChange={(e) => setMonitorData({ ...monitorData, lastName: e.target.value })}
-                            />
+                            <Input id="lastName" type="text" value={monitorData.lastName || ""} disabled />
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="email">Correo Electrónico</Label>
-                            <Input id="email" type="email" value={monitorData.email} disabled />
+                            <Input id="email" type="email" value={monitorData.email || ""} disabled />
                             <p className="text-xs text-gray-500">El correo institucional no se puede cambiar</p>
                           </div>
                           <div className="space-y-2">
-                            <Label htmlFor="phone">Teléfono</Label>
-                            <Input
-                              id="phone"
-                              value={monitorData.phone}
-                              onChange={(e) => setMonitorData({ ...monitorData, phone: e.target.value })}
-                            />
+                            <Label htmlFor="code">Código</Label>
+                            <Input id="code" type="text" value={monitorData.code || ""} disabled />
                           </div>
                         </div>
 
-                        {/* Professional Info */}
+                        {/* Academic Info */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <Label htmlFor="employeeId">ID de Monitor</Label>
-                            <Input id="employeeId" value={monitorData.employeeId} disabled />
+                            <Label htmlFor="program">Programa Académico</Label>
+                            <Input id="program" type="text" value={monitorData.program || ""} disabled />
                           </div>
-                          
+                          <div className="space-y-2">
+                            <Label htmlFor="semester">Semestre Actual</Label>
+                            <Input id="semester" type="text" value={monitorData.semester || ""} disabled />
+                          </div>
                         </div>
 
                         
 
-                    
+                        
 
-                        <Button className="bg-red-800 hover:bg-red-900">
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar Cambios
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
+                            <Shield className="h-4 w-4 mr-2" />
+                            Cambiar Contraseña
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
                   </TabsContent>
 
-                  <TabsContent value="notifications" className="space-y-6">
+
+                  {/* Preferences Tab */}
+                  <TabsContent value="preferences" className="space-y-6">
                     <Card>
                       <CardHeader>
-                        <CardTitle>Preferencias de Notificaciones</CardTitle>
-                        <CardDescription>Configura cómo quieres recibir notificaciones</CardDescription>
+                        <CardTitle>Preferencias Generales</CardTitle>
+                        <CardDescription>Personaliza tu experiencia en la plataforma</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-6">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Nuevas Citas</Label>
-                              <p className="text-sm text-gray-500">Notificaciones cuando se agende una nueva cita</p>
-                            </div>
-                            <Switch defaultChecked />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Idioma</Label>
+                            <Select
+                              value={preferences.preferredLanguage}
+                              onValueChange={(value) => setPreferences({ ...preferences, preferredLanguage: value })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="es">Español</SelectItem>
+                                <SelectItem value="en">English</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
 
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Recordatorios de Citas</Label>
-                              <p className="text-sm text-gray-500">Recordatorios antes de cada monitoría</p>
-                            </div>
-                            <Switch defaultChecked />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Cancelaciones</Label>
-                              <p className="text-sm text-gray-500">Cuando un estudiante cancele una cita</p>
-                            </div>
-                            <Switch defaultChecked />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Evaluaciones</Label>
-                              <p className="text-sm text-gray-500">Cuando recibas una nueva calificación</p>
-                            </div>
-                            <Switch defaultChecked />
+                          <div className="space-y-2">
+                            <Label>Zona Horaria</Label>
+                            <Select
+                              value={preferences.timezone}
+                              onValueChange={(value) => setPreferences({ ...preferences, timezone: value })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="America/Bogota">Bogotá (GMT-5)</SelectItem>
+                                <SelectItem value="America/New_York">Nueva York (GMT-5)</SelectItem>
+                                <SelectItem value="Europe/Madrid">Madrid (GMT+1)</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
 
@@ -1438,6 +1694,10 @@ export default function MonitorDashboard() {
             <DialogTitle>{editingSlot ? "Editar Horario Disponible" : "Agregar Horario Disponible"}</DialogTitle>
             <DialogDescription>
               {editingSlot ? "Modifica la configuración de este horario" : "Configura un nuevo horario para recibir estudiantes"}
+              <br />
+              <span className="text-sm text-amber-600 font-medium">
+                Nota: Las disponibilidades tienen una duración fija de 2 horas
+              </span>
             </DialogDescription>
           </DialogHeader>
 
@@ -1467,7 +1727,7 @@ export default function MonitorDashboard() {
                 <Label>Hora Inicio</Label>
                 <Select
                   value={newAvailability.startTime}
-                  onValueChange={(value) => setNewAvailability({ ...newAvailability, startTime: value })}
+                  onValueChange={handleStartTimeChange}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Inicio" />
@@ -1475,7 +1735,7 @@ export default function MonitorDashboard() {
                   <SelectContent>
                     {Array.from({ length: 12 }, (_, i) => i + 8).map((hour) => (
                       <SelectItem key={hour} value={`${hour.toString().padStart(2, "0")}:00`}>
-                        {hour.toString().padStart(2, "0")}:00
+                        {formatTime12Hour(`${hour.toString().padStart(2, "0")}:00`)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1484,21 +1744,11 @@ export default function MonitorDashboard() {
 
               <div className="space-y-2">
                 <Label>Hora Fin</Label>
-                <Select
-                  value={newAvailability.endTime}
-                  onValueChange={(value) => setNewAvailability({ ...newAvailability, endTime: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Fin" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 12 }, (_, i) => i + 8).map((hour) => (
-                      <SelectItem key={hour} value={`${hour.toString().padStart(2, "0")}:00`}>
-                        {hour.toString().padStart(2, "0")}:00
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Input
+                  value={newAvailability.endTime ? formatTime12Hour(newAvailability.endTime) : ""}
+                  disabled
+                  placeholder="Se calcula automáticamente"
+                />
               </div>
             </div>
 

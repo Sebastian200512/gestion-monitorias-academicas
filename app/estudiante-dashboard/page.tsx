@@ -198,6 +198,7 @@ interface Appointment {
   feedback?: string
   topics?: string[]
   duration?: number
+  disponibilidad_id?: string
 }
 
 interface Notification {
@@ -222,20 +223,31 @@ export default function StudentDashboard() {
   const [userId, setUserId] = useState<number | null>(null)
   const [currentUser, setCurrentUser] = useState<any>(null)
 
-  // Booking states
-  const [currentStep, setCurrentStep] = useState(1)
+  // Booking states (single step)
+  const [searchSubject, setSearchSubject] = useState("")
+  const [filteredSubjects, setFilteredSubjects] = useState<Subject[]>([])
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null)
+  const [disponibilidadesMateria, setDisponibilidadesMateria] = useState<any[]>([])
+  const [selectedDisp, setSelectedDisp] = useState<{
+    id: string;
+    dia: 'lunes'|'martes'|'miercoles'|'jueves'|'viernes'|'sabado'|'domingo';
+    hora_inicio: string;
+    hora_fin: string;
+    ubicacion?: string | null;
+    monitor: { id: string; nombre: string; email?: string };
+    materia: { id: string; nombre: string; codigo: string };
+  } | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
-  const [selectedTime, setSelectedTime] = useState<string | null>(null)
-  const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null)
-  const [selectedMonitor, setSelectedMonitor] = useState<Monitor | null>(null)
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
   // Appointments states
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [showModifyDialog, setShowModifyDialog] = useState(false)
+  const [newDate, setNewDate] = useState<Date | null>(null)
+  const [isLoadingModify, setIsLoadingModify] = useState(false)
+  const [modifyDia, setModifyDia] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
 
@@ -344,20 +356,67 @@ const [userData, setUserData] = useState({
 
   const [userNotifications, setUserNotifications] = useState<Notification[]>([])
 
-  // Cargar slots disponibles cuando se selecciona una materia
+  // Debounced search for subjects
+  useEffect(() => {
+    const debounceTimer = setTimeout(async () => {
+      if (searchSubject.length >= 2) {
+        // Try API search first
+        try {
+          const searchRes = await fetch(`${API_BASE}/materias?search=${encodeURIComponent(searchSubject)}`)
+          if (searchRes.ok) {
+            const searchData = await searchRes.json()
+            const filtered = searchData.map((subject: any) => ({
+              id: subject.id.toString(),
+              name: subject.name,
+              code: subject.code,
+              credits: subject.credits
+            }))
+            setFilteredSubjects(filtered)
+          } else {
+            throw new Error('API search not available')
+          }
+        } catch (error) {
+          // Fallback to local filtering
+          const filtered = subjects.filter(subject =>
+            subject.name.toLowerCase().includes(searchSubject.toLowerCase()) ||
+            subject.code.toLowerCase().includes(searchSubject.toLowerCase())
+          )
+          setFilteredSubjects(filtered)
+        }
+      } else {
+        setFilteredSubjects([])
+      }
+    }, 300)
+
+    return () => clearTimeout(debounceTimer)
+  }, [searchSubject, subjects, API_BASE])
+
+  // Load availabilities when subject is selected
   useEffect(() => {
     if (selectedSubject) {
-      const loadSlots = async () => {
-        const slotsRes = await fetch(`${API_BASE}/disponibilidades?materia_id=${selectedSubject.id}`)
-        if (slotsRes.ok) {
-          const slotsData = await slotsRes.json()
-          setAvailableSlots(slotsData.data || [])
+      const loadDisponibilidades = async () => {
+        const dispRes = await fetch(`${API_BASE}/disponibilidades?materia_id=${selectedSubject.id}&estado=Activa`)
+        if (dispRes.ok) {
+          const dispData = await dispRes.json()
+          const mappedDisp = dispData.data.map((d: any) => ({
+            id: String(d.id),
+            dia: d.dia,
+            hora_inicio: d.hora_inicio.substring(0,5),
+            hora_fin: d.hora_fin.substring(0,5),
+            ubicacion: d.ubicacion || null,
+            monitor: { id: String(d.monitor.id), nombre: d.monitor.nombre_completo, email: d.monitor.correo },
+            materia: { id: String(d.materia.id), nombre: d.materia.nombre, codigo: d.materia.codigo }
+          }))
+          setDisponibilidadesMateria(mappedDisp)
         }
       }
-      loadSlots()
+      loadDisponibilidades()
     } else {
-      setAvailableSlots([])
+      setDisponibilidadesMateria([])
     }
+    // Clear selection when subject changes
+    setSelectedDisp(null)
+    setSelectedDate(null)
   }, [selectedSubject, API_BASE])
 
   // Cargar datos desde API
@@ -436,10 +495,15 @@ const [userData, setUserData] = useState({
               rating: 0,
               feedback: '',
               topics: [],
-              duration: 0
+              duration: calculateDuration(cita.hora_inicio, cita.hora_fin),
+              disponibilidad_id: cita.disponibilidad_id?.toString()
             }))
-            setUpcomingAppointments(appointments.filter((a: any) => a.status !== 'completada'))
-            setHistoryAppointments(appointments.filter((a: any) => a.status === 'completada'))
+            // Filtrar por fecha: upcoming = futuras y no completadas, history = pasadas o completadas
+            const upcoming = appointments.filter((a: any) => !isPastAppointment(a) && a.status !== 'completada')
+            const history = appointments.filter((a: any) => isPastAppointment(a) || a.status === 'completada')
+
+            setUpcomingAppointments(upcoming)
+            setHistoryAppointments(history)
           }
         }
 
@@ -536,35 +600,21 @@ const [userData, setUserData] = useState({
     return monitors.filter((monitor) => monitor.subjects.includes(selectedSubject.id) && monitor.available)
   }
 
-  const getAvailableTimeSlots = (): TimeSlot[] => {
-    if (!selectedDate || !selectedSubject) return []
+  const weekdayToIndex: Record<string, number> = {
+    domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6
+  }
 
-    // Get day of the week in Spanish
-    const daysOfWeek = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
-    const selectedDayOfWeek = daysOfWeek[selectedDate.getDay()]
+  const getSingleTimeSlot = (): TimeSlot[] => {
+    if (!selectedDate || !selectedDisp) return []
 
-    // Filter slots for the selected day of the week
-    const slotsForDate = availableSlots.filter((slot: any) =>
-      slot.dia?.toLowerCase() === selectedDayOfWeek.toLowerCase()
-    )
-
-    const timeSlots: TimeSlot[] = []
-
-    slotsForDate.forEach((slot: any) => {
-      const time = slot.hora_inicio.substring(0, 5) // HH:MM format
-      const endTime = slot.hora_fin.substring(0, 5) // HH:MM format
-      timeSlots.push({
-        time,
-        endTime,
-        available: true, // Temporarily make all slots available for testing
-        monitorId: slot.monitor.id.toString(),
-        slotId: slot.id.toString(),
-        monitorName: slot.monitor.nombre_completo,
-        location: slot.ubicacion || "Aula por asignar"
-      })
-    })
-
-    return timeSlots
+    return [{
+      time: selectedDisp.hora_inicio,
+      endTime: selectedDisp.hora_fin,
+      available: true,
+      monitorId: selectedDisp.monitor.id,
+      slotId: selectedDisp.id,
+      monitorName: selectedDisp.monitor.nombre
+    }]
   }
 
   const generateCalendarDays = () => {
@@ -579,9 +629,6 @@ const [userData, setUserData] = useState({
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    // Get available days of the week from current availabilities
-    const availableDaysOfWeek = new Set(availableSlots.map((slot: any) => slot.dia))
-
     for (let i = 0; i < 42; i++) {
       const date = new Date(startDate)
       date.setDate(startDate.getDate() + i)
@@ -591,10 +638,10 @@ const [userData, setUserData] = useState({
       const isPast = date < today
       const isSelected = selectedDate && date.getTime() === selectedDate.getTime()
 
-      // Convert date to day of week in Spanish
-      const daysOfWeek = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado']
-      const dayOfWeek = daysOfWeek[date.getDay()]
-      const hasAvailability = availableDaysOfWeek.has(dayOfWeek)
+    // If selectedDisp exists, only mark days matching the dia as available
+    const isAvailable = selectedDisp
+      ? isCurrentMonth && !isPast && date.getDay() === (typeof selectedDisp.dia === 'string' ? weekdayToIndex[selectedDisp.dia.toLowerCase()] : selectedDisp.dia)
+      : isCurrentMonth && !isPast
 
       days.push({
         date,
@@ -603,7 +650,7 @@ const [userData, setUserData] = useState({
         isToday,
         isPast,
         isSelected,
-        isAvailable: isCurrentMonth && !isPast,
+        isAvailable,
       })
     }
 
@@ -640,41 +687,17 @@ const [userData, setUserData] = useState({
     }
   }
 
-  // Event handlers
-  const nextStep = () => {
-    if (currentStep < 2) {
-      setCurrentStep(currentStep + 1)
-    }
+  const canBookAppointment = () => {
+    return selectedSubject !== null && selectedDisp !== null && selectedDate !== null
   }
 
-  const prevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1)
-    }
-  }
-
-  const canProceedToNextStep = () => {
-    switch (currentStep) {
-      case 1:
-        return selectedSubject !== null
-      case 2:
-        return selectedDate !== null && selectedSlot !== null
-      default:
-        return false
-    }
-  }
-
-  const handleConfirmAppointment = () => {
-    setShowConfirmDialog(true)
-  }
-
-  const handleFinalConfirmation = async () => {
-    if (!selectedSlot || !userId || !selectedDate) return
+  const handleBookAppointment = async () => {
+    if (!selectedDisp || !userId || !selectedDate) return
 
     try {
       const requestData = {
         estudiante_id: userId,
-        disponibilidad_id: selectedSlot.slotId,
+        disponibilidad_id: selectedDisp.id,
         fecha_cita: selectedDate.toISOString().split('T')[0] // Format as YYYY-MM-DD
       }
       console.log("Sending booking request:", requestData)
@@ -689,7 +712,6 @@ const [userData, setUserData] = useState({
       console.log("Booking response:", res.status, responseData)
 
       if (res.ok && responseData.ok) {
-        setShowConfirmDialog(false)
         resetBookingForm()
         setActiveTab("appointments")
         // Reload appointments
@@ -719,10 +741,15 @@ const [userData, setUserData] = useState({
             rating: 0,
             feedback: '',
             topics: [],
-            duration: 0
+            duration: calculateDuration(cita.hora_inicio, cita.hora_fin)
           }))
-          setUpcomingAppointments(appointments.filter((a: any) => a.status !== 'completada'))
-          setHistoryAppointments(appointments.filter((a: any) => a.status === 'completada'))
+
+          // Apply date-based filtering
+          const upcoming = appointments.filter((a: any) => !isPastAppointment(a) && a.status !== 'completada')
+          const history = appointments.filter((a: any) => isPastAppointment(a) || a.status === 'completada')
+
+          setUpcomingAppointments(upcoming)
+          setHistoryAppointments(history)
         }
       } else {
         console.error("Error booking appointment:", responseData)
@@ -734,13 +761,15 @@ const [userData, setUserData] = useState({
     }
   }
 
+
+
   const resetBookingForm = () => {
-    setCurrentStep(1)
+    setSearchSubject("")
+    setFilteredSubjects([])
     setSelectedSubject(null)
+    setDisponibilidadesMateria([])
+    setSelectedDisp(null)
     setSelectedDate(null)
-    setSelectedTime(null)
-    setSelectedSlot(null)
-    setSelectedMonitor(null)
   }
 
   const handleViewDetails = (appointment: Appointment) => {
@@ -793,14 +822,19 @@ const [userData, setUserData] = useState({
             rating: 0,
             feedback: '',
             topics: [],
-            duration: 0
+            duration: calculateDuration(cita.hora_inicio, cita.hora_fin)
           }))
-          setUpcomingAppointments(appointments.filter((a: any) => a.status !== 'completada'))
-          setHistoryAppointments(appointments.filter((a: any) => a.status === 'completada'))
-        }
 
-        alert("Cita cancelada exitosamente")
-      } else {
+          // Apply date-based filtering
+          const upcoming = appointments.filter((a: any) => !isPastAppointment(a) && a.status !== 'completada')
+          const history = appointments.filter((a: any) => isPastAppointment(a) || a.status === 'completada')
+
+            setUpcomingAppointments(upcoming)
+            setHistoryAppointments(history)
+          }
+
+          alert("Cita cancelada exitosamente")
+        } else {
         console.error("Error canceling appointment:", res.status)
         alert("Error al cancelar la cita")
       }
@@ -815,6 +849,142 @@ const [userData, setUserData] = useState({
     setRating(appointment.rating || 0)
     setFeedback(appointment.feedback || "")
     setShowRatingDialog(true)
+  }
+
+  const handleModifyAppointment = async (appointment: Appointment) => {
+    setSelectedAppointment(appointment)
+    setNewDate(new Date(appointment.date))
+    setModifyDia(appointment.disponibilidad_id ? null : null) // We'll need to fetch the dia if needed
+    setShowModifyDialog(true)
+
+    // If we have disponibilidad_id, fetch the dia for validation
+    if (appointment.disponibilidad_id) {
+      try {
+        const dispRes = await fetch(`${API_BASE}/disponibilidades/${appointment.disponibilidad_id}`)
+        if (dispRes.ok) {
+          const dispData = await dispRes.json()
+          setModifyDia(dispData.dia)
+        }
+      } catch (error) {
+        console.error("Error fetching disponibilidad:", error)
+      }
+    } else {
+      // If no disponibilidad_id, we might need to infer from the appointment data
+      // For now, allow all days
+      setModifyDia(null)
+    }
+  }
+
+  const handleSaveModifiedAppointment = async () => {
+    if (!selectedAppointment || !newDate || !userId) return
+
+    const originalDate = new Date(selectedAppointment.date)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    // Validations
+    if (newDate < today) {
+      alert("No se puede seleccionar una fecha anterior a hoy.")
+      return
+    }
+
+    if (newDate.getTime() === originalDate.getTime()) {
+      alert("La nueva fecha debe ser diferente a la fecha actual.")
+      return
+    }
+
+    // Check for conflicts with other appointments
+    const allAppointments = [...upcomingAppointments, ...historyAppointments]
+    const hasConflict = allAppointments.some(apt =>
+      apt.id !== selectedAppointment.id &&
+      apt.date === newDate.toISOString().split('T')[0] &&
+      apt.time === selectedAppointment.time &&
+      apt.monitor.name === selectedAppointment.monitor.name
+    )
+
+    if (hasConflict) {
+      alert("Ya tienes una cita programada para esa fecha y hora con el mismo monitor.")
+      return
+    }
+
+    setIsLoadingModify(true)
+
+    try {
+      let payload: any = { fecha_cita: newDate.toISOString().split('T')[0] }
+
+      // If we need to find a new disponibilidad_id (only if modifyDia is set)
+      if (modifyDia) {
+        // First, get monitor ID from email or name
+        let monitorId = selectedAppointment.monitor.email // Assuming email is used as ID
+        const monRes = await fetch(`${API_BASE}/monitors`)
+        if (monRes.ok) {
+          const monitors = await monRes.json()
+          const monitor = monitors.find((m: any) => m.correo === selectedAppointment.monitor.email)
+          if (monitor) monitorId = monitor.id
+        }
+
+        const dispRes = await fetch(`${API_BASE}/disponibilidades?monitor_id=${monitorId}&materia_id=${selectedAppointment.subjectCode}&dia=${modifyDia}&hora_inicio=${selectedAppointment.time}&hora_fin=${selectedAppointment.endTime}&estado=Activa`)
+        if (dispRes.ok) {
+          const dispData = await dispRes.json()
+          const availableDisp = dispData.data.find((d: any) => {
+            // Check if the date matches the selected day of week
+            const selectedDayIndex = newDate.getDay()
+            const weekdayMap: { [key: string]: number } = {
+              'domingo': 0, 'lunes': 1, 'martes': 2, 'miercoles': 3, 'jueves': 4, 'viernes': 5, 'sabado': 6
+            }
+            return weekdayMap[d.dia.toLowerCase()] === selectedDayIndex
+          })
+          if (availableDisp) {
+            payload.disponibilidad_id = availableDisp.id
+          } else {
+            alert("No hay disponibilidad para esa fecha.")
+            setIsLoadingModify(false)
+            return
+          }
+        }
+      }
+
+      const res = await fetch(`${API_BASE}/citas/${selectedAppointment.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      const responseData = await res.json()
+
+      if (res.ok) {
+        // Update local state with the response data
+        const updatedAppointment = {
+          ...selectedAppointment,
+          date: responseData.data.fecha_cita,
+          status: responseData.data.estado || selectedAppointment.status,
+          location: responseData.data.ubicacion || selectedAppointment.location
+        }
+
+        // Recalculate lists
+        const allAppointmentsFiltered = [...upcomingAppointments, ...historyAppointments].filter(a => a.id !== selectedAppointment.id)
+        allAppointmentsFiltered.push(updatedAppointment)
+
+        const upcoming = allAppointmentsFiltered.filter((a: any) => !isPastAppointment(a) && a.status !== 'completada')
+        const history = allAppointmentsFiltered.filter((a: any) => isPastAppointment(a) || a.status === 'completada')
+
+        setUpcomingAppointments(upcoming)
+        setHistoryAppointments(history)
+
+        setShowModifyDialog(false)
+        setSelectedAppointment(null)
+        setNewDate(null)
+        setModifyDia(null)
+        alert(responseData.msg || "Fecha de la cita modificada exitosamente.")
+      } else {
+        alert(responseData.msg || 'Error al modificar la cita')
+      }
+    } catch (error) {
+      console.error("Error modifying appointment:", error)
+      alert("Error al modificar la cita.")
+    } finally {
+      setIsLoadingModify(false)
+    }
   }
 
   const submitRating = () => {
@@ -866,7 +1036,44 @@ const [userData, setUserData] = useState({
     setShowDeleteDialog(false)
   }
 
-  // Filter functions
+  // Helper functions for appointment filtering
+  const parseHHMM = (t: string) => {
+    const [h, m] = t.split(":").map(Number)
+    const d = new Date()
+    d.setHours(h ?? 0, m ?? 0, 0, 0)
+    return d
+  }
+
+  const isPastAppointment = (apt: Appointment) => {
+    const today = new Date()
+    const todayYMD = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+
+    const aptDate = new Date(apt.date)
+    const aptYMD = new Date(aptDate.getFullYear(), aptDate.getMonth(), aptDate.getDate())
+
+    if (aptYMD < todayYMD) return true
+    if (aptYMD > todayYMD) return false
+
+    // Es hoy: comparar hora fin
+    const now = today
+    const [eh, em] = (apt.endTime || apt.time).split(":").map(Number)
+    const end = new Date()
+    end.setHours(eh ?? 0, em ?? 0, 0, 0)
+    return end < now
+  }
+
+  const calculateDuration = (startTime: string, endTime: string): number => {
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    const startMinutes = sh * 60 + sm;
+    const endMinutes = eh * 60 + em;
+    return endMinutes - startMinutes;
+  }
+
+  // Create derived arrays based on current date/time
+  const allAppointments = [...upcomingAppointments, ...historyAppointments]
+
+  // Filter functions for appointments tab
   const filteredUpcomingAppointments = upcomingAppointments.filter((appointment) => {
     const matchesSearch =
       appointment.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -875,14 +1082,87 @@ const [userData, setUserData] = useState({
     return matchesSearch && matchesFilter
   })
 
-  const filteredHistoryAppointments = historyAppointments.filter((appointment) => {
+  const filteredPastAppointments = historyAppointments.filter((appointment) => {
     const matchesSearch =
       appointment.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
       appointment.monitor.name.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesSubject = filterSubject === "all" || appointment.subjectCode === filterSubject
-    const matchesPeriod = filterPeriod === "all"
-    return matchesSearch && matchesSubject && matchesPeriod
+    const matchesFilter = filterStatus === "all" || appointment.status === filterStatus
+    return matchesSearch && matchesFilter
   })
+
+  // Helper function to normalize date to Date object in America/Bogota timezone
+  const normalizeDate = (dateStr: string) => {
+    if (!dateStr) return null
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return null
+    // Assume dateStr is YYYY-MM-DD, adjust for timezone if needed
+    // For simplicity, treat as local date
+    return date
+  }
+
+  // Helper function to get date range for filterPeriod
+  const getDateRange = (period: string) => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth()
+
+    switch (period) {
+      case "this_month":
+        const firstDayThisMonth = new Date(year, month, 1)
+        const lastDayThisMonth = new Date(year, month + 1, 0)
+        return { start: firstDayThisMonth, end: lastDayThisMonth }
+      case "last_month":
+        const firstDayLastMonth = new Date(year, month - 1, 1)
+        const lastDayLastMonth = new Date(year, month, 0)
+        return { start: firstDayLastMonth, end: lastDayLastMonth }
+      case "this_semester":
+        // Semester 1: Jan-Jun, Semester 2: Jul-Dec
+        const isFirstSemester = month < 6 // 0-5 is Jan-Jun
+        const start = isFirstSemester ? new Date(year, 0, 1) : new Date(year, 6, 1)
+        const end = isFirstSemester ? new Date(year, 5, 30) : new Date(year, 11, 31)
+        return { start, end }
+      default:
+        return null // "all" has no range
+    }
+  }
+
+  // Filter functions for history tab
+  const filteredHistoryAppointments = historyAppointments
+    .filter((appointment) => {
+      const matchesSearch =
+        appointment.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        appointment.monitor.name.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesSubject = filterSubject === "all" || appointment.subjectCode === filterSubject
+
+      // Period filtering
+      let matchesPeriod = true
+      if (filterPeriod !== "all") {
+        const range = getDateRange(filterPeriod)
+        if (range) {
+          const aptDate = normalizeDate(appointment.date)
+          if (!aptDate) {
+            matchesPeriod = false
+          } else {
+            matchesPeriod = aptDate >= range.start && aptDate <= range.end
+          }
+        }
+      }
+
+      return matchesSearch && matchesSubject && matchesPeriod
+    })
+    .sort((a, b) => {
+      // Sort by date descending (most recent first)
+      const dateA = normalizeDate(a.date)
+      const dateB = normalizeDate(b.date)
+      if (!dateA && !dateB) return 0
+      if (!dateA) return 1
+      if (!dateB) return -1
+      if (dateA.getTime() !== dateB.getTime()) {
+        return dateB.getTime() - dateA.getTime()
+      }
+      // If same date, sort by time descending
+      return b.time.localeCompare(a.time)
+    })
 
   const stats = {
     totalSessions: historyAppointments.filter((apt) => apt.status === "completada").length,
@@ -927,7 +1207,7 @@ const [userData, setUserData] = useState({
                   </h1>
                   <p className="text-sm text-gray-500">
                     {activeTab === "home" && `${currentUser?.programa || "Programa no especificado"} - ${currentUser?.semestre ? `${currentUser.semestre}to Semestre` : "Semestre no especificado"}`}
-                    {activeTab === "booking" && `Paso ${currentStep} de 2 - Completa la información requerida`}
+                    {activeTab === "booking" && "Completa la información requerida"}
                     {activeTab === "appointments" && "Gestiona tus monitorías programadas"}
                     {activeTab === "history" && "Revisa tu progreso académico y califica tus sesiones"}
                     {activeTab === "notifications" && "Mantente al día con tus actividades y recordatorios"}
@@ -969,30 +1249,10 @@ const [userData, setUserData] = useState({
                   Nueva Cita
                 </Button>
               )}
-              {activeTab === "history" && (
-                <Button variant="outline">
-                  <Download className="h-4 w-4 mr-2" />
-                  Exportar Historial
-                </Button>
-              )}
             </div>
           </header>
 
-          {/* Progress Bar for Booking */}
-          {activeTab === "booking" && (
-            <div className="bg-white border-b border-gray-200 px-6 py-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Progreso</span>
-                <span className="text-sm text-gray-500">{currentStep}/2</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-red-800 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(currentStep / 2) * 100}%` }}
-                ></div>
-              </div>
-            </div>
-          )}
+
 
           {/* Main Content */}
           <main className="p-6">
@@ -1021,18 +1281,6 @@ const [userData, setUserData] = useState({
                           <p className="text-2xl font-bold text-gray-900">{stats.totalHours.toFixed(1)}</p>
                         </div>
                         <Clock className="h-8 w-8 text-amber-600" />
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-l-4 border-l-red-600">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-gray-600">Materias Activas</p>
-                          <p className="text-2xl font-bold text-gray-900">{subjects.length}</p>
-                        </div>
-                        <BookOpen className="h-8 w-8 text-red-600" />
                       </div>
                     </CardContent>
                   </Card>
@@ -1085,17 +1333,21 @@ const [userData, setUserData] = useState({
                             <div>
                               <h4 className="font-medium text-gray-900">{appointment.subject}</h4>
                               <p className="text-sm text-gray-600">Monitor: {appointment.monitor.name}</p>
-                              <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {appointment.date}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {appointment.time}
-                                </span>
-                                <span>{appointment.location}</span>
-                              </div>
+              <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {new Date(appointment.date).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {appointment.time} – {appointment.endTime || (() => {
+                    const [h, m] = appointment.time.split(':').map(Number);
+                    const endH = h + 1;
+                    return `${endH.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+                  })()}
+                </span>
+                <span>{appointment.location}</span>
+              </div>
                             </div>
                           </div>
                           <Badge className={getStatusColor(appointment.status)}>
@@ -1116,78 +1368,120 @@ const [userData, setUserData] = useState({
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Main Form */}
                   <div className="lg:col-span-2">
-                    {/* Step 1: Subject Selection */}
-                    {currentStep === 1 && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <BookOpen className="h-5 w-5" />
-                            Selecciona la Materia
-                          </CardTitle>
-                          <CardDescription>Elige la asignatura para la cual necesitas apoyo académico</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {subjects.length === 0 ? (
-                              <div className="col-span-full text-center py-8">
-                                <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                                <h3 className="text-lg font-medium text-gray-900 mb-2">No hay materias disponibles</h3>
-                                <p className="text-gray-500">No hay monitores disponibles para ninguna materia en este momento.</p>
+                    {/* Subject and Availability Selection */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <BookOpen className="h-5 w-5" />
+                          Selecciona la Materia y Disponibilidad
+                        </CardTitle>
+                        <CardDescription>Busca una materia y elige una disponibilidad activa</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Search Input */}
+                        <div className="relative">
+                          <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                          <Input
+                            placeholder="Buscar materia por nombre o código..."
+                            className="pl-10"
+                            value={searchSubject}
+                            onChange={(e) => setSearchSubject(e.target.value)}
+                          />
+                        </div>
+
+                        {/* Filtered Subjects */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto">
+                          {subjects.filter(subject =>
+                            subject.name.toLowerCase().includes(searchSubject.toLowerCase()) ||
+                            subject.code.toLowerCase().includes(searchSubject.toLowerCase())
+                          ).map((subject) => (
+                            <div
+                              key={subject.id}
+                              className={`
+                                p-4 border rounded-lg cursor-pointer transition-all duration-200
+                                ${
+                                  selectedSubject?.id === subject.id
+                                    ? "border-red-800 bg-red-50 ring-2 ring-red-800 ring-opacity-20"
+                                    : "border-gray-200 hover:border-red-300 hover:bg-red-50"
+                                }
+                              `}
+                              onClick={() => {
+                                setSelectedSubject(subject)
+                                setSelectedDisp(null)
+                                setSelectedDate(null)
+                              }}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <h3 className="font-medium text-gray-900">{subject.name}</h3>
+                                  <p className="text-sm text-gray-600">{subject.code}</p>
+                                  <p className="text-xs text-gray-500">{subject.credits} créditos</p>
+                                </div>
+                                {selectedSubject?.id === subject.id && (
+                                  <CheckCircle className="h-5 w-5 text-red-800" />
+                                )}
                               </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Disponibilidades for selected subject */}
+                        {selectedSubject && (
+                          <div className="space-y-4">
+                            <h4 className="font-medium text-gray-900">Disponibilidades activas para {selectedSubject.name}</h4>
+                            {disponibilidadesMateria.length === 0 ? (
+                              <Alert>
+                                <AlertCircle className="h-4 w-4" />
+                                <AlertDescription>
+                                  No hay disponibilidades para esta materia por el momento.
+                                </AlertDescription>
+                              </Alert>
                             ) : (
-                              subjects.map((subject) => (
-                                <div
-                                  key={subject.id}
-                                  className={`
-                                    p-4 border rounded-lg cursor-pointer transition-all duration-200
-                                    ${
-                                      selectedSubject?.id === subject.id
-                                        ? "border-red-800 bg-red-50 ring-2 ring-red-800 ring-opacity-20"
-                                        : "border-gray-200 hover:border-red-300 hover:bg-red-50"
-                                    }
-                                  `}
-                                  onClick={() => setSelectedSubject(subject)}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <h3 className="font-medium text-gray-900">{subject.name}</h3>
-                                      <p className="text-sm text-gray-600">{subject.code}</p>
-                                      <p className="text-xs text-gray-500">{subject.credits} créditos</p>
-                                      <div className="mt-2">
-                                        <p className="text-xs text-gray-500">Monitores disponibles:</p>
-                                        <div className="flex flex-wrap gap-1 mt-1">
-                                          {Array.from(subjectMonitorMap.get(subject.id) || []).map((monitorName) => (
-                                            <Badge key={monitorName} variant="secondary" className="text-xs">
-                                              {monitorName}
-                                            </Badge>
-                                          ))}
+                              <div className="space-y-2">
+                                {disponibilidadesMateria.map((disp) => (
+                                  <div
+                                    key={disp.id}
+                                    className={`
+                                      p-4 border rounded-lg cursor-pointer transition-all duration-200
+                                      ${
+                                        selectedDisp?.id === disp.id
+                                          ? "border-red-800 bg-red-50 ring-2 ring-red-800 ring-opacity-20"
+                                          : "border-gray-200 hover:border-red-300 hover:bg-red-50"
+                                      }
+                                    `}
+                                    onClick={() => {
+                                      setSelectedDisp(disp)
+                                      setSelectedDate(null)
+                                    }}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <User className="h-4 w-4 text-gray-500" />
+                                          <span className="font-medium">{disp.monitor.nombre}</span>
+                                          <Badge variant="outline" className="text-xs">{disp.materia.codigo}</Badge>
+                                        </div>
+                                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                                          <span className="capitalize">{disp.dia}</span>
+                                          <span>{disp.hora_inicio} - {disp.hora_fin}</span>
+                                          <span>{disp.ubicacion || "Ubicación por asignar"}</span>
                                         </div>
                                       </div>
+                                      {selectedDisp?.id === disp.id && (
+                                        <CheckCircle className="h-5 w-5 text-red-800" />
+                                      )}
                                     </div>
-                                    {selectedSubject?.id === subject.id && (
-                                      <CheckCircle className="h-5 w-5 text-red-800" />
-                                    )}
                                   </div>
-                                </div>
-                              ))
+                                ))}
+                              </div>
                             )}
                           </div>
+                        )}
+                      </CardContent>
+                    </Card>
 
-                          {selectedSubject && (
-                            <Alert>
-                              <AlertCircle className="h-4 w-4" />
-                              <AlertDescription>
-                                Has seleccionado <strong>{selectedSubject.name}</strong>. Hay{" "}
-                                {subjectMonitorMap.get(selectedSubject.id)?.size || 0} monitores disponibles para esta materia.
-                              </AlertDescription>
-                            </Alert>
-                          )}
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    {/* Step 2: Date and Time Selection */}
-                    {currentStep === 2 && (
+                    {/* Date and Time Selection */}
+                    {selectedDisp && (
                       <Card>
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
@@ -1257,61 +1551,9 @@ const [userData, setUserData] = useState({
                               ))}
                             </div>
                           </div>
-
-                          {/* Time Slots */}
-                          {selectedDate && (
-                            <div>
-                              <h3 className="font-medium text-gray-900 mb-3">
-                                Horarios Disponibles - {selectedDate.toLocaleDateString("es-ES")}
-                              </h3>
-                              {getAvailableTimeSlots().length === 0 ? (
-                                <div className="text-center py-8">
-                                  <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                                  <h4 className="text-lg font-medium text-gray-900 mb-2">No hay horarios disponibles</h4>
-                                  <p className="text-gray-500 mb-4">No hay monitores disponibles para esta fecha. Selecciona otra fecha.</p>
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => setSelectedDate(null)}
-                                    className="mt-2"
-                                  >
-                                    Seleccionar otra fecha
-                                  </Button>
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-4 gap-2">
-                                  {getAvailableTimeSlots().map((slot) => (
-                                    <button
-                                      key={slot.time}
-                                      className={`
-                                        p-3 text-sm rounded-md border transition-colors
-                                        ${
-                                          selectedTime === slot.time
-                                            ? "border-red-800 bg-red-800 text-white"
-                                            : slot.available
-                                              ? "border-gray-200 hover:border-red-800 hover:bg-red-50"
-                                              : "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
-                                        }
-                                      `}
-                                      disabled={!slot.available}
-                                      onClick={() => {
-                                        if (slot.available) {
-                                          setSelectedSlot(slot)
-                                          setSelectedTime(slot.time)
-                                        }
-                                      }}
-                                    >
-                                      {slot.time} - {slot.endTime}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
                         </CardContent>
                       </Card>
                     )}
-
-
                   </div>
 
                   {/* Summary Sidebar */}
@@ -1322,12 +1564,12 @@ const [userData, setUserData] = useState({
                         <CardDescription>Revisa los detalles antes de confirmar</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        {selectedSubject && (
+                        {selectedDisp && (
                           <div className="flex items-center gap-3 text-sm">
                             <BookOpen className="h-4 w-4 text-gray-500" />
                             <div>
-                              <p className="font-medium">{selectedSubject.name}</p>
-                              <p className="text-gray-500">{selectedSubject.code}</p>
+                              <p className="font-medium">{selectedDisp.materia.nombre}</p>
+                              <p className="text-gray-500">{selectedDisp.materia.codigo}</p>
                             </div>
                           </div>
                         )}
@@ -1346,20 +1588,20 @@ const [userData, setUserData] = useState({
                           </div>
                         )}
 
-                        {selectedSlot && (
+                        {selectedDisp && (
                           <div className="flex items-center gap-3 text-sm">
                             <Clock className="h-4 w-4 text-gray-500" />
                             <span>
-                              {selectedSlot.time} - {selectedSlot.endTime}
+                              {selectedDisp.hora_inicio} - {selectedDisp.hora_fin}
                             </span>
                           </div>
                         )}
 
-                        {selectedSlot && (
+                        {selectedDisp && (
                           <div className="flex items-center gap-3 text-sm">
                             <User className="h-4 w-4 text-gray-500" />
                             <div>
-                              <p className="font-medium">{selectedSlot.monitorName}</p>
+                              <p className="font-medium">{selectedDisp.monitor.nombre}</p>
                               <div className="flex items-center gap-1">
                               </div>
                             </div>
@@ -1368,15 +1610,14 @@ const [userData, setUserData] = useState({
 
                         <div className="flex items-center gap-3 text-sm">
                           <MapPin className="h-4 w-4 text-gray-500" />
-                          <span>{selectedSlot?.location || "Aula por asignar"}</span>
+                          <span>{selectedDisp?.ubicacion || "Aula por asignar"}</span>
                         </div>
 
-                        {currentStep === 2 && (
+                        {canBookAppointment() && (
                           <div className="border-t pt-4">
                             <Button
                               className="w-full bg-red-800 hover:bg-red-900"
-                              onClick={handleConfirmAppointment}
-                              disabled={!canProceedToNextStep()}
+                              onClick={handleBookAppointment}
                             >
                               <CheckCircle className="h-4 w-4 mr-2" />
                               Confirmar Cita
@@ -1385,31 +1626,6 @@ const [userData, setUserData] = useState({
                         )}
                       </CardContent>
                     </Card>
-
-                    {/* Navigation Buttons */}
-                    {currentStep < 2 && (
-                      <Card>
-                        <CardContent className="p-4">
-                          <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              onClick={prevStep}
-                              disabled={currentStep === 1}
-                              className="flex-1 bg-transparent"
-                            >
-                              Anterior
-                            </Button>
-                            <Button
-                              onClick={nextStep}
-                              disabled={!canProceedToNextStep()}
-                              className="flex-1 bg-red-800 hover:bg-red-900"
-                            >
-                              Siguiente
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
                   </div>
                 </div>
               </div>
@@ -1449,7 +1665,7 @@ const [userData, setUserData] = useState({
                 <Tabs defaultValue="upcoming" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-2 max-w-md">
                     <TabsTrigger value="upcoming">Próximas ({filteredUpcomingAppointments.length})</TabsTrigger>
-                    <TabsTrigger value="past">Anteriores (0)</TabsTrigger>
+                    <TabsTrigger value="past">Anteriores ({filteredPastAppointments.length})</TabsTrigger>
                   </TabsList>
 
                   {/* Upcoming Appointments */}
@@ -1511,13 +1727,9 @@ const [userData, setUserData] = useState({
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => handleViewDetails(appointment)}>
-                                      <BookOpen className="h-4 w-4 mr-2" />
-                                      Ver Detalles
-                                    </DropdownMenuItem>
-                                    {appointment.status !== "completada" && (
+                                    {appointment.status !== "completada" && appointment.status !== "cancelada" && (
                                       <>
-                                        <DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleModifyAppointment(appointment)}>
                                           <Edit className="h-4 w-4 mr-2" />
                                           Modificar
                                         </DropdownMenuItem>
@@ -1542,13 +1754,83 @@ const [userData, setUserData] = useState({
 
                   {/* Past Appointments */}
                   <TabsContent value="past" className="space-y-4">
-                    <Card>
-                      <CardContent className="p-8 text-center">
-                        <History className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes citas anteriores</h3>
-                        <p className="text-gray-500">Tus monitorías completadas aparecerán aquí</p>
-                      </CardContent>
-                    </Card>
+                    {filteredPastAppointments.length === 0 ? (
+                      <Card>
+                        <CardContent className="p-8 text-center">
+                          <History className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes citas anteriores</h3>
+                          <p className="text-gray-500">Tus monitorías completadas aparecerán aquí</p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      filteredPastAppointments.map((appointment) => (
+                        <Card key={appointment.id}>
+                          <CardContent className="p-6">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-start gap-4">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h3 className="font-medium text-gray-900">{appointment.subject}</h3>
+                                    <Badge variant="outline" className="text-xs">
+                                      {appointment.subjectCode}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm text-gray-600 mb-2">Monitor: {appointment.monitor.name}</p>
+                                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                                    <div className="flex items-center gap-1">
+                                      <Calendar className="h-4 w-4" />
+                                      <span>{new Date(appointment.date).toLocaleDateString("es-ES")}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Clock className="h-4 w-4" />
+                                      <span>
+                                        {appointment.time} - {appointment.endTime}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <MapPin className="h-4 w-4" />
+                                      <span>{appointment.location}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge className={getStatusColor(appointment.status)}>
+                                  {getStatusIcon(appointment.status)}
+                                  <span className="ml-1 capitalize">{appointment.status}</span>
+                                </Badge>
+                                {appointment.status === "completada" && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRateAppointment(appointment)}
+                                  >
+                                    <Star className="h-4 w-4 mr-1" />
+                                    Calificar
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+
+                            {appointment.feedback && (
+                              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                                <p className="text-sm text-gray-700">
+                                  <strong>Tu comentario:</strong> {appointment.feedback}
+                                </p>
+                              </div>
+                            )}
+
+                            {appointment.monitorNotes && (
+                              <div className="mt-2 p-3 bg-blue-50 rounded-lg">
+                                <p className="text-sm text-gray-700">
+                                  <strong>Notas del monitor:</strong> {appointment.monitorNotes}
+                                </p>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
                   </TabsContent>
                 </Tabs>
               </div>
@@ -1558,7 +1840,7 @@ const [userData, setUserData] = useState({
             {activeTab === "history" && (
               <div className="space-y-6">
                 {/* Stats Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Card className="border-l-4 border-l-green-600">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
@@ -1582,8 +1864,6 @@ const [userData, setUserData] = useState({
                       </div>
                     </CardContent>
                   </Card>
-
-                  
                 </div>
 
                 {/* Filters */}
@@ -1599,18 +1879,6 @@ const [userData, setUserData] = useState({
                           onChange={(e) => setSearchTerm(e.target.value)}
                         />
                       </div>
-                      <Select value={filterSubject} onValueChange={setFilterSubject}>
-                        <SelectTrigger className="w-48">
-                          <SelectValue placeholder="Filtrar por materia" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">Todas las materias</SelectItem>
-                          <SelectItem value="MAT101">Cálculo Diferencial</SelectItem>
-                          <SelectItem value="FIS101">Física I</SelectItem>
-                          <SelectItem value="SIS101">Programación I</SelectItem>
-                          <SelectItem value="MAT201">Álgebra Lineal</SelectItem>
-                        </SelectContent>
-                      </Select>
                       <Select value={filterPeriod} onValueChange={setFilterPeriod}>
                         <SelectTrigger className="w-48">
                           <SelectValue placeholder="Filtrar por período" />
@@ -1637,16 +1905,12 @@ const [userData, setUserData] = useState({
                       </CardContent>
                     </Card>
                   ) : (
-                    filteredHistoryAppointments.map((appointment) => (
+                    filteredHistoryAppointments.map((appointment: Appointment) => (
                       <Card key={appointment.id}>
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
                             <div className="flex items-start gap-4">
-                              <img
-                                src={appointment.monitor.photo || "/placeholder.svg"}
-                                alt={appointment.monitor.name}
-                                className="w-12 h-12 rounded-full object-cover"
-                              />
+                              
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
                                   <h3 className="font-medium text-gray-900">{appointment.subject}</h3>
@@ -1670,7 +1934,7 @@ const [userData, setUserData] = useState({
                                   </div>
                                 </div>
                                 <div className="flex flex-wrap gap-1">
-                                  {appointment.topics?.map((topic, index) => (
+                                  {appointment.topics?.map((topic: string, index: number) => (
                                     <Badge key={index} variant="secondary" className="text-xs">
                                       {topic}
                                     </Badge>
@@ -1727,7 +1991,7 @@ const [userData, setUserData] = useState({
               </div>
             )}
 
-            {/* Notifications Tab */}
+            {/* notificaciones */}
             {activeTab === "notifications" && (
               <div className="space-y-6">
                 {/* Mark All as Read Button */}
@@ -1823,7 +2087,6 @@ const [userData, setUserData] = useState({
                 <Tabs defaultValue="profile" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
-                    <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
                     <TabsTrigger value="preferences">Preferencias</TabsTrigger>
                   </TabsList>
 
@@ -1889,114 +2152,6 @@ const [userData, setUserData] = useState({
                     </Card>
                   </TabsContent>
 
-                  {/* Notifications Tab */}
-                  <TabsContent value="notifications" className="space-y-6">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Preferencias de Notificaciones</CardTitle>
-                        <CardDescription>Configura cómo y cuándo quieres recibir notificaciones</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-6">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Recordatorios por Email</Label>
-                              <p className="text-sm text-gray-500">
-                                Recibe recordatorios de citas por correo electrónico
-                              </p>
-                            </div>
-                            <Switch
-                              checked={notifications.emailReminders}
-                              onCheckedChange={(checked) =>
-                                setNotifications({ ...notifications, emailReminders: checked })
-                              }
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Recordatorios por SMS</Label>
-                              <p className="text-sm text-gray-500">
-                                Recibe recordatorios de citas por mensaje de texto
-                              </p>
-                            </div>
-                            <Switch
-                              checked={notifications.smsReminders}
-                              onCheckedChange={(checked) =>
-                                setNotifications({ ...notifications, smsReminders: checked })
-                              }
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Confirmaciones de Citas</Label>
-                              <p className="text-sm text-gray-500">
-                                Notificaciones cuando se confirme o cancele una cita
-                              </p>
-                            </div>
-                            <Switch
-                              checked={notifications.appointmentConfirmations}
-                              onCheckedChange={(checked) =>
-                                setNotifications({ ...notifications, appointmentConfirmations: checked })
-                              }
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Resumen Semanal</Label>
-                              <p className="text-sm text-gray-500">Recibe un resumen de tus actividades cada semana</p>
-                            </div>
-                            <Switch
-                              checked={notifications.weeklyDigest}
-                              onCheckedChange={(checked) =>
-                                setNotifications({ ...notifications, weeklyDigest: checked })
-                              }
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                              <Label>Promociones y Eventos</Label>
-                              <p className="text-sm text-gray-500">
-                                Información sobre eventos académicos y promociones
-                              </p>
-                            </div>
-                            <Switch
-                              checked={notifications.promotions}
-                              onCheckedChange={(checked) => setNotifications({ ...notifications, promotions: checked })}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Tiempo de Recordatorio</Label>
-                          <Select
-                            value={preferences.defaultReminderTime}
-                            onValueChange={(value) => setPreferences({ ...preferences, defaultReminderTime: value })}
-                          >
-                            <SelectTrigger className="w-48">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="15">15 minutos antes</SelectItem>
-                              <SelectItem value="30">30 minutos antes</SelectItem>
-                              <SelectItem value="60">1 hora antes</SelectItem>
-                              <SelectItem value="120">2 horas antes</SelectItem>
-                              <SelectItem value="1440">1 día antes</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <Button className="bg-red-800 hover:bg-red-900">
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar Preferencias
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
 
                   {/* Preferences Tab */}
                   <TabsContent value="preferences" className="space-y-6">
@@ -2047,32 +2202,6 @@ const [userData, setUserData] = useState({
                         </Button>
                       </CardContent>
                     </Card>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Estadísticas de Uso</CardTitle>
-                        <CardDescription>Tu actividad en la plataforma</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="text-center p-4 bg-gray-50 rounded-lg">
-                            <CalendarDays className="h-8 w-8 text-red-800 mx-auto mb-2" />
-                            <p className="text-2xl font-bold text-gray-900">{stats.totalSessions}</p>
-                            <p className="text-sm text-gray-600">Citas Completadas</p>
-                          </div>
-                          <div className="text-center p-4 bg-gray-50 rounded-lg">
-                            <Clock className="h-8 w-8 text-amber-600 mx-auto mb-2" />
-                            <p className="text-2xl font-bold text-gray-900">{stats.totalHours.toFixed(1)}</p>
-                            <p className="text-sm text-gray-600">Horas de Monitoría</p>
-                          </div>
-                          <div className="text-center p-4 bg-gray-50 rounded-lg">
-                            <BookOpen className="h-8 w-8 text-red-600 mx-auto mb-2" />
-                            <p className="text-2xl font-bold text-gray-900">{new Set(historyAppointments.map(apt => apt.subject)).size}</p>
-                            <p className="text-sm text-gray-600">Materias Diferentes</p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
                   </TabsContent>
                 </Tabs>
               </div>
@@ -2081,41 +2210,7 @@ const [userData, setUserData] = useState({
         </SidebarInset>
       </div>
 
-      {/* Confirmation Dialog */}
-      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Confirmar Cita de Monitoría</DialogTitle>
-            <DialogDescription>
-              ¿Estás seguro de que deseas agendar esta cita? Se enviará una confirmación por correo electrónico.
-            </DialogDescription>
-          </DialogHeader>
 
-          <div className="space-y-3 py-4">
-            <div className="text-sm">
-              <strong>Materia:</strong> {selectedSubject?.name}
-            </div>
-            <div className="text-sm">
-              <strong>Fecha:</strong> {selectedDate?.toLocaleDateString("es-ES")}
-            </div>
-            <div className="text-sm">
-              <strong>Hora:</strong> {selectedSlot?.time}
-            </div>
-            <div className="text-sm">
-              <strong>Monitor:</strong> {selectedSlot?.monitorName}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleFinalConfirmation} className="bg-red-800 hover:bg-red-900">
-              Confirmar Cita
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Details Dialog */}
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
@@ -2131,7 +2226,7 @@ const [userData, setUserData] = useState({
               <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
                 <div className="flex-1">
                   <h3 className="font-medium text-gray-900">{selectedAppointment.monitor.name}</h3>
-                  
+
                   <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
                     <div className="flex items-center gap-1">
                       <Mail className="h-3 w-3" />
@@ -2183,7 +2278,7 @@ const [userData, setUserData] = useState({
                   <label className="text-sm font-medium text-gray-700">Ubicación</label>
                   <p className="text-sm text-gray-900">{selectedAppointment.location}</p>
                 </div>
-                
+
               </div>
 
             </div>
@@ -2199,6 +2294,111 @@ const [userData, setUserData] = useState({
                 Contactar Monitor
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modify Appointment Dialog */}
+      <Dialog open={showModifyDialog} onOpenChange={setShowModifyDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Modificar fecha de la cita</DialogTitle>
+            <DialogDescription>Cambia únicamente la fecha de tu cita. Los demás detalles permanecerán iguales.</DialogDescription>
+          </DialogHeader>
+
+          {selectedAppointment && (
+            <div className="space-y-6">
+              {/* Read-only Summary */}
+              <div className="p-4 bg-gray-50 rounded-lg space-y-3">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700">Materia:</span>
+                    <p className="text-gray-900">{selectedAppointment.subject} ({selectedAppointment.subjectCode})</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Monitor:</span>
+                    <p className="text-gray-900">{selectedAppointment.monitor.name}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Horario:</span>
+                    <p className="text-gray-900">{selectedAppointment.time} - {selectedAppointment.endTime}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Ubicación:</span>
+                    <p className="text-gray-900">{selectedAppointment.location || 'Por asignar'}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Estado:</span>
+                    <Badge className={getStatusColor(selectedAppointment.status)}>
+                      {getStatusIcon(selectedAppointment.status)}
+                      <span className="ml-1 capitalize">{selectedAppointment.status}</span>
+                    </Badge>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Fecha actual:</span>
+                    <p className="text-gray-900">
+                      {new Date(selectedAppointment.date).toLocaleDateString("es-ES", {
+                        weekday: "long",
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Date Picker */}
+              <div className="space-y-2">
+                <Label htmlFor="newDate">Nueva fecha</Label>
+                <Input
+                  id="newDate"
+                  type="date"
+                  value={newDate ? newDate.toISOString().split('T')[0] : ''}
+                  onChange={(e) => {
+                    const selectedDate = e.target.value ? new Date(e.target.value) : null
+                    if (selectedDate && modifyDia) {
+                      const weekdayMap: { [key: string]: number } = {
+                        'domingo': 0, 'lunes': 1, 'martes': 2, 'miercoles': 3, 'jueves': 4, 'viernes': 5, 'sabado': 6
+                      }
+                      const requiredDay = weekdayMap[modifyDia.toLowerCase()]
+                      if (selectedDate.getDay() !== requiredDay) {
+                        alert(`Esta cita solo puede programarse los ${modifyDia}s.`)
+                        return
+                      }
+                    }
+                    setNewDate(selectedDate)
+                  }}
+                  min={new Date().toISOString().split('T')[0]}
+                />
+                <p className="text-xs text-gray-500">
+                  Solo puedes seleccionar fechas futuras. Si la cita tiene un día fijo, solo estarán disponibles los días correspondientes.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowModifyDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              className="bg-red-800 hover:bg-red-900"
+              onClick={handleSaveModifiedAppointment}
+              disabled={!newDate || newDate.getTime() === new Date(selectedAppointment?.date || '').getTime() || isLoadingModify}
+            >
+              {isLoadingModify ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Guardar cambios
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
