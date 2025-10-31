@@ -36,6 +36,14 @@ export async function POST(
       [userId, roleId]
     );
 
+    // Si el rol removido es MONITOR, set materia_asignada_id to NULL
+    if (role === "MONITOR") {
+      await query(
+        "UPDATE usuarios SET materia_asignada_id = NULL WHERE id = ?",
+        [userId]
+      );
+    }
+
     return NextResponse.json({ message: "Rol removido exitosamente" });
   } catch (err) {
     console.error("Error al remover rol:", err);

@@ -135,6 +135,11 @@ interface Monitor {
   photo?: string
   specialties?: string[]
   program?: string
+  materia_asignada?: {
+    id: number
+    codigo: string
+    nombre: string
+  } | null
 }
 interface Subject {
   id: string
@@ -165,17 +170,22 @@ interface Appointment {
 const getStatusColor = (status: string) => {
   switch (status) {
     case "Activo":
-    case "confirmada":
     case "completada":
       return "bg-green-600 hover:bg-green-700"
+
     case "Pendiente":
     case "pendiente":
+      return "bg-gray-500 hover:bg-gray-600"
+
+    case "confirmada":
       return "bg-amber-600 hover:bg-amber-700"
-    case "Inactivo":
+    
     case "cancelada":
       return "bg-red-600 hover:bg-red-700"
+
     default:
-      return "bg-gray-500 hover:bg-gray-600"
+    case "Inactivo":
+      return "bg-blue-500 hover:bg-gray-600"
   }
 }
 const getStatusIcon = (status: string) => {
@@ -214,6 +224,11 @@ export default function AdminDashboardComplete() {
   const [editingAppointment, setEditingAppointment] = useState<any>(null)
   const [editAppointmentDate, setEditAppointmentDate] = useState("")
   const [editAppointmentStatus, setEditAppointmentStatus] = useState("")
+  const [showAssignSubjectDialog, setShowAssignSubjectDialog] = useState(false)
+  const [selectedMonitor, setSelectedMonitor] = useState<Monitor | null>(null)
+  const [subjectSearchTerm, setSubjectSearchTerm] = useState("")
+  const [selectedSubject, setSelectedSubject] = useState<any>(null)
+  const [isAssigningSubject, setIsAssigningSubject] = useState(false)
 
   // filtros/selección
   const [searchTerm, setSearchTerm] = useState("")
@@ -239,6 +254,7 @@ export default function AdminDashboardComplete() {
   const [monitors, setMonitors] = useState<Monitor[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [rolesMap, setRolesMap] = useState<Map<string, string[]>>(new Map())
 
   /** ======== COMPUTE MONITORS WITH SESSIONS ======== */
   const monitorsWithSessions = useMemo(() => {
@@ -256,11 +272,12 @@ export default function AdminDashboardComplete() {
   useEffect(() => {
     ;(async () => {
       try {
-        const [u, s, res, appointmentsRes] = await Promise.all([
+        const [u, s, res, appointmentsRes, rolesRes] = await Promise.all([
           fetch('/api/usuarios?rol=ESTUDIANTE'),
           fetch('/api/materias'),
           fetch('/api/usuarios?rol=MONITOR'),
           fetch('/api/citas'),
+          fetch('/api/usuario-rol'),
         ])
         if (u.ok) {
         const data = await u.json();
@@ -269,7 +286,7 @@ export default function AdminDashboardComplete() {
           name: user.nombre,
           email: user.email,
           role: user.rol,            // ya viene como 'Estudiante'
-          status: 'Activo',
+          status: 'Inactivo', // temporary, will be updated based on roles
           program: user.programa || '',
           semester: user.semestre || '',
           joinDate: user.created_at ? new Date(user.created_at).toISOString().split('T')[0] : ''
@@ -291,16 +308,31 @@ export default function AdminDashboardComplete() {
         }
         if (res.ok) {
         const data = await res.json();
-        setMonitors(data.map((user: any) => ({
-          id: String(user.id),
-          name: user.nombre,
-          email: user.email,
-          role: user.rol,            // 'Monitor'
-          status: 'Activo',
-          program: user.programa || '',
-          semester: user.semestre || '',
-          joinDate: user.created_at ? new Date(user.created_at).toISOString().split('T')[0] : ''
-        })));
+        const monitorsData = await Promise.all(data.map(async (user: any) => {
+          const baseMonitor = {
+            id: String(user.id),
+            name: user.nombre,
+            email: user.email,
+            role: user.rol,            // 'Monitor'
+            status: 'Activo',
+            program: user.programa || '',
+            semester: user.semestre || '',
+            joinDate: user.created_at ? new Date(user.created_at).toISOString().split('T')[0] : ''
+          };
+          try {
+            const subjectRes = await fetch(`/api/usuarios/${user.id}/materia-asignada`);
+            if (subjectRes.ok) {
+              const subjectData = await subjectRes.json();
+              return { ...baseMonitor, materia_asignada: subjectData };
+            } else {
+              return { ...baseMonitor, materia_asignada: null };
+            }
+          } catch (error) {
+            console.error('Error fetching assigned subject for monitor', user.id, error);
+            return { ...baseMonitor, materia_asignada: null };
+          }
+        }));
+        setMonitors(monitorsData);
       }
         if (appointmentsRes.ok) {
           const appointmentsJson = await appointmentsRes.json();
@@ -331,6 +363,31 @@ export default function AdminDashboardComplete() {
           }
         } else {
           setAppointments([]);
+        }
+        if (rolesRes.ok) {
+          const rolesData = await rolesRes.json();
+          const map = new Map<string, string[]>();
+          rolesData.forEach((role: any) => {
+            const userId = String(role.usuario_id);
+            const normalizedRole = role.rol.toUpperCase().trim();
+            if (!map.has(userId)) {
+              map.set(userId, []);
+            }
+            map.get(userId)!.push(normalizedRole);
+          });
+          // Remove duplicates
+          map.forEach((roles, userId) => {
+            map.set(userId, [...new Set(roles)]);
+          });
+          setRolesMap(map);
+
+          // Update users status based on roles
+          setUsers(currentUsers => currentUsers.map(user => {
+            const userRoles = map.get(user.id) || [];
+            const hasEstudiante = userRoles.includes('ESTUDIANTE');
+            const hasMonitor = userRoles.includes('MONITOR');
+            return { ...user, status: (hasEstudiante && hasMonitor) ? 'Activo' : 'Inactivo' };
+          }));
         }
         //citas no implementados aún, dejar vacíos
       } catch (error) {
@@ -619,7 +676,20 @@ export default function AdminDashboardComplete() {
                     </div>
                   </CardContent></Card>
 
-                  
+                  <Card><CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Total Monitores</p>
+                        <p className="text-3xl font-bold text-gray-900">{systemStats.totalMonitors}</p>
+                        <div className="flex items-center gap-1 mt-1">
+                          <ArrowUpRight className="h-3 w-3 text-green-600" />
+                          <p className="text-xs text-green-600">+0% vs período anterior</p>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-red-100 rounded-full"><UserCheck className="h-6 w-6 text-red-800" /></div>
+                    </div>
+                  </CardContent></Card>
+
                 </div>
 
                
@@ -911,11 +981,30 @@ export default function AdminDashboardComplete() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex justify-between mt-4 pt-4 border-t border-gray-100">
+                        <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
                           <div className="text-sm text-gray-600">
                             <span className="font-medium">{monitor.totalSessions ?? 0}</span> sesiones
                           </div>
+                          {monitor.materia_asignada ? (
+                            <div className="text-sm text-gray-600">
+                              Materia: <span className="font-medium">{monitor.materia_asignada.codigo} — {monitor.materia_asignada.nombre}</span>
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-500">Sin materia asignada</div>
+                          )}
                           <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedMonitor(monitor);
+                                setSubjectSearchTerm("");
+                                setSelectedSubject(null);
+                                setShowAssignSubjectDialog(true);
+                              }}
+                            >
+                              <BookOpen className="h-3 w-3 mr-1" />{monitor.materia_asignada ? "Cambiar Materia" : "Asignar Materia"}
+                            </Button>
                             <Button
                               variant="outline"
                               size="sm"
@@ -1011,7 +1100,6 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            
 
             {/* ===== Gestión de citas ===== */}
             {activeTab === "appointments" && (
@@ -1544,6 +1632,98 @@ export default function AdminDashboardComplete() {
             >
               <Save className="h-4 w-4 mr-2" />
               Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Asignar Materia a Monitor */}
+      <Dialog open={showAssignSubjectDialog} onOpenChange={setShowAssignSubjectDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Asignar Materia</DialogTitle>
+            <DialogDescription>
+              Selecciona una materia para asignar al monitor {selectedMonitor?.name}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Buscar materia..."
+                className="pl-10"
+                value={subjectSearchTerm}
+                onChange={(e) => setSubjectSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="max-h-60 overflow-y-auto">
+              {subjects
+                .filter((subject) => subject.status === 'Activo')
+                .filter((subject) =>
+                  subject.name.toLowerCase().includes(subjectSearchTerm.toLowerCase()) ||
+                  subject.code.toLowerCase().includes(subjectSearchTerm.toLowerCase())
+                )
+                .map((subject) => (
+                  <div
+                    key={subject.id}
+                    className={`p-2 cursor-pointer rounded-md hover:bg-gray-100 ${
+                      selectedSubject?.id === subject.id ? "bg-red-50 border border-red-200" : ""
+                    }`}
+                    onClick={() => setSelectedSubject(subject)}
+                  >
+                    <div className="font-medium">{subject.name}</div>
+                    <div className="text-sm text-gray-500">{subject.code}</div>
+                  </div>
+                ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAssignSubjectDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!selectedMonitor || !selectedSubject) return;
+                setIsAssigningSubject(true);
+                try {
+                  const res = await fetch(`/api/usuarios/${selectedMonitor.id}/materia-asignada`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ materia_id: selectedSubject.id }),
+                  });
+                  if (res.ok) {
+                    alert('Materia asignada exitosamente');
+                    setShowAssignSubjectDialog(false);
+                    setSelectedMonitor(null);
+                    setSelectedSubject(null);
+                    setSubjectSearchTerm("");
+                    // Refresh data
+                    window.location.reload();
+                  } else {
+                    const error = await res.json();
+                    alert(`Error: ${error.error || 'Error al asignar materia'}`);
+                  }
+                } catch (err) {
+                  console.error('Error asignando materia:', err);
+                  alert('Error al asignar materia');
+                } finally {
+                  setIsAssigningSubject(false);
+                }
+              }}
+              disabled={!selectedSubject || isAssigningSubject}
+              className="bg-red-800 hover:bg-red-900"
+            >
+              {isAssigningSubject ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Asignando...
+                </>
+              ) : (
+                <>
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Asignar
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

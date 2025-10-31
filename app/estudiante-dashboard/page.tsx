@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -153,13 +153,11 @@ interface Monitor {
   id: string
   name: string
   email: string
-  phone: string
   subjects: string[]
   rating: number
   experience: string
   totalSessions: number
   available: boolean
-  photo: string
   specialties: string[]
   schedule: { [key: string]: string[] }
 }
@@ -181,9 +179,6 @@ interface Appointment {
   monitor: {
     name: string
     email: string
-    phone: string
-    rating: number
-    photo: string
   }
   date: string
   time: string
@@ -203,7 +198,7 @@ interface Appointment {
 
 interface Notification {
   id: string
-  type: "appointment_reminder" | "appointment_confirmed" | "appointment_cancelled" | "appointment_completed" | "system" | "monitor_message"
+  type: "appointment_created" | "appointment_confirmed" | "appointment_cancelled" | "appointment_completed" | "appointment_reminder" | "system" | "monitor_message"
   title: string
   message: string
   date: string
@@ -211,6 +206,90 @@ interface Notification {
   appointmentId?: string
   actionUrl?: string
 }
+
+// Helper function to format time
+const formatTime12Hour = (time: string) => {
+  const [hours, minutes] = time.split(':')
+  const hourNum = parseInt(hours)
+  return `${hourNum}:${minutes} ${hourNum < 12 ? 'a. m.' : 'p. m.'}`
+}
+
+// Helper functions for notifications
+const toLocalDate = (fecha: string, hora: string) => new Date(`${fecha}T${hora}`);
+
+const syncNotifications = (userId: number | null, notifications: Notification[]) => {
+  if (!userId) return;
+  localStorage.setItem(`student_notifications_${userId}`, JSON.stringify(notifications));
+};
+
+const syncNotificationsAndKeys = (userId: number | null, notifications: Notification[], notifiedKeys: string[]) => {
+  syncNotifications(userId, notifications);
+  syncNotifiedKeys(userId, notifiedKeys);
+};
+
+const syncNotifiedKeys = (userId: number | null, keys: string[]) => {
+  if (!userId) return;
+  localStorage.setItem(`student_notified_keys_${userId}`, JSON.stringify(keys));
+};
+
+const purgePastReminders = (notifications: Notification[]): Notification[] => {
+  const now = new Date();
+  const futureLimit = new Date(now.getTime() + 36 * 60 * 60 * 1000); // 36 horas
+  return notifications.filter(n => {
+    if (n.type !== 'appointment_reminder') return true;
+    const reminderDate = toLocalDate(n.date.split('T')[0], n.date.split('T')[1] || '00:00');
+    return reminderDate > now && reminderDate <= futureLimit;
+  });
+};
+
+const ensureUniqueNotification = (
+  notifications: Notification[],
+  notifiedKeys: string[],
+  userId: number | null,
+  type: Notification['type'],
+  appointmentId: string,
+  title: string,
+  message: string,
+  date: string
+): { notifications: Notification[], notifiedKeys: string[] } => {
+  if (!userId) return { notifications, notifiedKeys };
+
+  const key = `${type}:${appointmentId}`;
+  if (notifiedKeys.includes(key)) return { notifications, notifiedKeys };
+
+  const newNotification: Notification = {
+    id: key,
+    type,
+    title,
+    message,
+    date,
+    read: false,
+    appointmentId
+  };
+
+  const updatedNotifications = [...notifications, newNotification];
+  const updatedKeys = [...notifiedKeys, key];
+
+  syncNotificationsAndKeys(userId, updatedNotifications, updatedKeys);
+
+  return { notifications: updatedNotifications, notifiedKeys: updatedKeys };
+};
+
+const removeReminderForAppointment = (
+  notifications: Notification[],
+  notifiedKeys: string[],
+  userId: number | null,
+  appointmentId: string
+): { notifications: Notification[], notifiedKeys: string[] } => {
+  if (!userId) return { notifications, notifiedKeys };
+
+  const updatedNotifications = notifications.filter(n => !(n.type === 'appointment_reminder' && n.appointmentId === appointmentId));
+  const updatedKeys = notifiedKeys.filter(k => !k.startsWith(`appointment_reminder:${appointmentId}`));
+
+  syncNotificationsAndKeys(userId, updatedNotifications, updatedKeys);
+
+  return { notifications: updatedNotifications, notifiedKeys: updatedKeys };
+};
 
 /** ========= Estado de datos (LIMPIO, SIN MOCKS) ========= */
 const API_BASE = "/api"
@@ -266,19 +345,21 @@ export default function StudentDashboard() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
 
+  // Notifications states
+  const [notificationFilter, setNotificationFilter] = useState("all")
+
   // estados
 const [user, setUser] = useState<any | null>(null);
 const [userData, setUserData] = useState({
   firstName: "",
   lastName: "",
   email: "",
-  phone: "",
   studentId: "",
   program: "",
   semester: "",
-  bio: "",
-  avatar: "/placeholder.svg?height=100&width=100",
 });
+
+
 
   // Load user from localStorage
   useEffect(() => {
@@ -305,12 +386,9 @@ const [userData, setUserData] = useState({
               firstName: firstName || "",
               lastName: lastNameParts.join(" ") || "",
               email: fullUser.email || "",
-              phone: "", // No está en el endpoint, se puede dejar vacío o agregar si se extiende el endpoint
               studentId: fullUser.codigo || "",
               program: fullUser.programa || "",
               semester: fullUser.semestre ? fullUser.semestre.toString() : "",
-              bio: "", // No está en el endpoint, se puede dejar vacío o agregar si se extiende el endpoint
-              avatar: "/placeholder.svg?height=100&width=100",
             })
           }
         })
@@ -320,20 +398,7 @@ const [userData, setUserData] = useState({
     }
   }, [activeTab, userId])
 
-  const [notifications, setNotifications] = useState({
-    emailReminders: false,
-    smsReminders: false,
-    appointmentConfirmations: false,
-    weeklyDigest: false,
-    promotions: false,
-  })
-
-  const [privacy, setPrivacy] = useState({
-    profileVisibility: "private",
-    showEmail: false,
-    showPhone: false,
-    allowDirectMessages: false,
-  })
+ 
 
   const [preferences, setPreferences] = useState({
     preferredLanguage: "es",
@@ -355,6 +420,133 @@ const [userData, setUserData] = useState({
   const [historyAppointments, setHistoryAppointments] = useState<Appointment[]>([])
 
   const [userNotifications, setUserNotifications] = useState<Notification[]>([])
+  const [notifiedKeys, setNotifiedKeys] = useState<string[]>([])
+  const [prevAppointments, setPrevAppointments] = useState<Appointment[]>([])
+
+  // Function to generate notifications based on appointment changes
+  const generateNotifications = useCallback((currentAppointments: Appointment[]) => {
+    const newNotifications: Notification[] = []
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const tomorrow = new Date(today)
+    tomorrow.setDate(today.getDate() + 1)
+
+    // Create a map of previous appointments by ID
+    const prevMap = new Map(prevAppointments.map(apt => [apt.id, apt]))
+
+    // Check for new appointments or status changes
+    currentAppointments.forEach(apt => {
+      const prevApt = prevMap.get(apt.id)
+
+      if (!prevApt) {
+        // New appointment created - only notify for future or recent appointments
+        const aptDate = new Date(apt.date)
+        const aptDay = new Date(aptDate.getFullYear(), aptDate.getMonth(), aptDate.getDate())
+        const yesterday = new Date(today)
+        yesterday.setDate(today.getDate() - 1)
+
+        // Only create notifications for appointments from yesterday onwards
+        if (aptDay >= yesterday) {
+          const key = `created:${apt.id}`
+          if (!notifiedKeys.includes(key)) {
+            const day = aptDate.getDate().toString()
+            const month = (aptDate.getMonth() + 1).toString()
+            const year = aptDate.getFullYear()
+            const appointmentDate = `${day}/${month}/${year}`
+            const [hours, minutes] = apt.time.split(':')
+            const hourNum = parseInt(hours)
+            const timeFormatted = `${hourNum}:${minutes} ${hourNum < 12 ? 'a. m.' : 'p. m.'}`
+            const dayOfWeek = now.toLocaleString('es-ES', { weekday: 'long' })
+            const notificationDate = `${dayOfWeek}, ${now.getDate().toString()} de ${now.toLocaleString('es-ES', { month: 'long' })} de ${now.getFullYear()}, ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+            newNotifications.push({
+              id: `appointment_created-${apt.id}-${Date.now()}`,
+              type: "appointment_created",
+            message: `${apt.subject} con ${apt.monitor.name} el ${appointmentDate} a las ${timeFormatted}`,
+            title: "Nueva cita agendada",
+            date: notificationDate,
+              read: false,
+              appointmentId: apt.id
+            })
+            setNotifiedKeys(prev => [...prev, key])
+          }
+        }
+      } else if (prevApt.status !== apt.status) {
+        // Status changed
+        let type: Notification['type'] | null = null
+        let title = ""
+        let message = ""
+
+        if (apt.status === "confirmada") {
+          type = "appointment_confirmed"
+          title = "Cita confirmada"
+          message = `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido confirmada`
+        } else if (apt.status === "cancelada") {
+          type = "appointment_cancelled"
+          title = "Cita cancelada"
+          message = `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido cancelada`
+        } else if (apt.status === "completada") {
+          type = "appointment_completed"
+          title = "Cita completada"
+          message = `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido completada`
+        }
+
+        if (type) {
+          const key = `status:${apt.id}:${apt.status}`
+          if (!notifiedKeys.includes(key)) {
+            const dayOfWeek = now.toLocaleString('es-ES', { weekday: 'long' })
+            const notificationDate = `${dayOfWeek}, ${now.getDate().toString()} de ${now.toLocaleString('es-ES', { month: 'long' })} de ${now.getFullYear()}, ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+            newNotifications.push({
+              id: `${type}-${apt.id}-${Date.now()}`,
+              type,
+              title,
+              message,
+              date: notificationDate,
+              read: false,
+              appointmentId: apt.id
+            })
+            setNotifiedKeys(prev => [...prev, key])
+          }
+        }
+      }
+
+      // Check for reminders (today or tomorrow, not completed/cancelled)
+      if (apt.status !== "completada" && apt.status !== "cancelada") {
+        const aptDate = new Date(apt.date)
+        const aptDay = new Date(aptDate.getFullYear(), aptDate.getMonth(), aptDate.getDate())
+
+        if (aptDay.getTime() === today.getTime() || aptDay.getTime() === tomorrow.getTime()) {
+          const dateStr = aptDay.getTime() === today.getTime() ? "hoy" : "mañana"
+          const key = `reminder:${apt.id}:${aptDay.toISOString().split('T')[0]}`
+          if (!notifiedKeys.includes(key)) {
+            const dayOfWeek = now.toLocaleString('es-ES', { weekday: 'long' })
+            const notificationDate = `${dayOfWeek}, ${now.getDate().toString()} de ${now.toLocaleString('es-ES', { month: 'long' })} de ${now.getFullYear()}, ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+            newNotifications.push({
+              id: `appointment_reminder-${apt.id}-${Date.now()}`,
+              type: "appointment_reminder",
+              title: "Recordatorio de cita",
+            message: `Tienes una monitoría de ${apt.subject} con ${apt.monitor.name} ${dateStr} a las ${apt.time.split(':')[0]}:${apt.time.split(':')[1]} ${parseInt(apt.time.split(':')[0]) < 12 ? 'a. m.' : 'p. m.'}`,
+              date: notificationDate,
+              read: false,
+              appointmentId: apt.id
+            })
+            setNotifiedKeys(prev => [...prev, key])
+          }
+        }
+      }
+    })
+
+    // Update notifications state
+    if (newNotifications.length > 0) {
+      setUserNotifications(prev => {
+        const updated = [...newNotifications, ...prev].slice(0, 100) // Keep max 100
+        syncNotifications(userId, updated)
+        return updated
+      })
+    }
+
+    // Update previous appointments
+    setPrevAppointments(currentAppointments)
+  }, [prevAppointments, notifiedKeys, userId])
 
   // Debounced search for subjects
   useEffect(() => {
@@ -479,22 +671,12 @@ const [userData, setUserData] = useState({
               monitor: {
                 name: cita.monitor.nombre_completo,
                 email: cita.monitor.correo,
-                phone: '',
-                rating: 0,
-                photo: '',
               },
               date: cita.fecha_cita,
               time: cita.hora_inicio,
               endTime: cita.hora_fin,
               location: cita.ubicacion || '',
               status: cita.estado,
-              details: '',
-              studentNotes: '',
-              monitorNotes: '',
-              createdAt: '',
-              rating: 0,
-              feedback: '',
-              topics: [],
               duration: calculateDuration(cita.hora_inicio, cita.hora_fin),
               disponibilidad_id: cita.disponibilidad_id?.toString()
             }))
@@ -522,30 +704,14 @@ const [userData, setUserData] = useState({
                 firstName: firstName || "",
                 lastName: lastNameParts.join(" ") || "",
                 email: fullUser.email || "",
-                phone: "",
                 studentId: fullUser.codigo || "",
                 program: fullUser.programa || "",
                 semester: fullUser.semestre ? fullUser.semestre.toString() : "",
-                bio: "",
-                avatar: "/placeholder.svg?height=100&width=100",
               })
             }
           }
         }
 
-        // Cargar notifications settings
-        const notificationsRes = await fetch(`${API_BASE}/user/notifications`)
-        if (notificationsRes.ok) {
-          const notificationsData = await notificationsRes.json()
-          setNotifications(notificationsData)
-        }
-
-        // Cargar privacy settings
-        const privacyRes = await fetch(`${API_BASE}/user/privacy`)
-        if (privacyRes.ok) {
-          const privacyData = await privacyRes.json()
-          setPrivacy(privacyData)
-        }
 
         // Cargar preferences
         const preferencesRes = await fetch(`${API_BASE}/user/preferences`)
@@ -554,36 +720,154 @@ const [userData, setUserData] = useState({
           setPreferences(preferencesData)
         }
 
-        // Cargar notifications (mock data por ahora)
-        const mockNotifications: Notification[] = [
-          {
-            id: "1",
-            type: "appointment_reminder",
-            title: "Recordatorio de cita",
-            message: "Tienes una monitoría programada para mañana a las 10:00 AM",
-            date: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 horas atrás
-            read: false,
-            appointmentId: "1"
-          },
-          {
-            id: "2",
-            type: "appointment_confirmed",
-            title: "Cita confirmada",
-            message: "Tu cita de Cálculo Diferencial ha sido confirmada por el monitor",
-            date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // 1 día atrás
-            read: true,
-            appointmentId: "2"
-          },
-          {
-            id: "3",
-            type: "system",
-            title: "Bienvenido al sistema",
-            message: "¡Bienvenido a Monitorías UCP! Explora las funcionalidades disponibles.",
-            date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), // 1 semana atrás
-            read: true
+        // Cargar notifications desde localStorage y generar basadas en citas
+        let notifications: Notification[] = []
+        let notifiedKeys: string[] = []
+        if (userId) {
+          const storedNotifications = localStorage.getItem(`student_notifications_${userId}`)
+          if (storedNotifications) {
+            try {
+              notifications = JSON.parse(storedNotifications)
+            } catch (error) {
+              console.error("Error parsing stored notifications:", error)
+              notifications = []
+            }
           }
-        ]
-        setUserNotifications(mockNotifications)
+          const storedKeys = localStorage.getItem(`student_notified_keys_${userId}`)
+          if (storedKeys) {
+            try {
+              notifiedKeys = JSON.parse(storedKeys)
+            } catch (error) {
+              console.error("Error parsing stored notified keys:", error)
+              notifiedKeys = []
+            }
+          }
+        }
+
+        // Purgar reminders pasados
+        notifications = purgePastReminders(notifications)
+
+        // Generar notificaciones basadas en citas actuales
+        if (userId) {
+          const appointmentsRes = await fetch(`${API_BASE}/citas?estudiante_id=${userId}`)
+          if (appointmentsRes.ok) {
+            const data = await appointmentsRes.json()
+            const appointments = data.data.map((cita: any) => ({
+              id: cita.id.toString(),
+              subject: cita.materia.nombre,
+              subjectCode: cita.materia.codigo,
+              monitor: {
+                name: cita.monitor.nombre_completo,
+                email: cita.monitor.correo,
+              },
+              date: cita.fecha_cita,
+              time: cita.hora_inicio,
+              endTime: cita.hora_fin,
+              location: cita.ubicacion || '',
+              status: cita.estado,
+              duration: calculateDuration(cita.hora_inicio, cita.hora_fin),
+              disponibilidad_id: cita.disponibilidad_id?.toString()
+            }))
+
+            // Generar notificaciones para cada cita
+            appointments.forEach((appointment: Appointment) => {
+              const appointmentDateTime = toLocalDate(appointment.date, appointment.time)
+              const now = new Date()
+              const hoursUntilAppointment = (appointmentDateTime.getTime() - now.getTime()) / (1000 * 60 * 60)
+
+              // appointment_created (al agendar)
+              const createdResult = ensureUniqueNotification(
+                notifications,
+                notifiedKeys,
+                userId,
+                'appointment_created',
+                appointment.id,
+                'Cita agendada',
+                `Has agendado una monitoría de ${appointment.subject} con ${appointment.monitor.name}`,
+                appointment.createdAt || appointment.date
+              )
+              notifications = createdResult.notifications
+              notifiedKeys = createdResult.notifiedKeys
+
+              // appointment_confirmed
+              if (appointment.status === 'confirmada') {
+                const confirmedResult = ensureUniqueNotification(
+                  notifications,
+                  notifiedKeys,
+                  userId,
+                  'appointment_confirmed',
+                  appointment.id,
+                  'Cita confirmada',
+                  `Tu cita de ${appointment.subject} ha sido confirmada por el monitor`,
+                  appointment.date
+                )
+                notifications = confirmedResult.notifications
+                notifiedKeys = confirmedResult.notifiedKeys
+              }
+
+              // appointment_cancelled
+              if (appointment.status === 'cancelada') {
+                const cancelledResult = ensureUniqueNotification(
+                  notifications,
+                  notifiedKeys,
+                  userId,
+                  'appointment_cancelled',
+                  appointment.id,
+                  'Cita cancelada',
+                  `Tu cita de ${appointment.subject} ha sido cancelada`,
+                  appointment.date
+                )
+                notifications = cancelledResult.notifications
+                notifiedKeys = cancelledResult.notifiedKeys
+                // Eliminar reminder
+                const reminderResult = removeReminderForAppointment(notifications, notifiedKeys, userId, appointment.id)
+                notifications = reminderResult.notifications
+                notifiedKeys = reminderResult.notifiedKeys
+              }
+
+              // appointment_completed
+              if (appointment.status === 'completada') {
+                const completedResult = ensureUniqueNotification(
+                  notifications,
+                  notifiedKeys,
+                  userId,
+                  'appointment_completed',
+                  appointment.id,
+                  'Cita completada',
+                  `Tu monitoría de ${appointment.subject} ha finalizado exitosamente`,
+                  appointment.date
+                )
+                notifications = completedResult.notifications
+                notifiedKeys = completedResult.notifiedKeys
+              }
+
+              // appointment_reminder (≤36h)
+              if (appointment.status !== 'cancelada' && appointment.status !== 'completada' && hoursUntilAppointment > 0 && hoursUntilAppointment <= 36) {
+                const reminderExists = notifications.some(n => n.type === 'appointment_reminder' && n.appointmentId === appointment.id)
+                if (!reminderExists) {
+                  const reminderDate = new Date(now.getTime() + (hoursUntilAppointment - 1) * 60 * 60 * 1000) // 1 hora antes
+                  const reminderResult = ensureUniqueNotification(
+                    notifications,
+                    notifiedKeys,
+                    userId,
+                    'appointment_reminder',
+                    appointment.id,
+                    'Recordatorio de cita',
+                    `Tienes una monitoría programada para ${appointment.subject} en ${Math.round(hoursUntilAppointment)} horas`,
+                    reminderDate.toISOString()
+                  )
+                  notifications = reminderResult.notifications
+                  notifiedKeys = reminderResult.notifiedKeys
+                }
+              }
+            })
+          }
+        }
+
+        // Ordenar por fecha descendente
+        notifications.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        setUserNotifications(notifications)
+        setNotifiedKeys(notifiedKeys)
       } catch (error) {
         console.error("Error loading data:", error)
       }
@@ -594,11 +878,7 @@ const [userData, setUserData] = useState({
     }
   }, [userId])
 
-  // Helper functions
-  const getAvailableMonitors = () => {
-    if (!selectedSubject) return []
-    return monitors.filter((monitor) => monitor.subjects.includes(selectedSubject.id) && monitor.available)
-  }
+  
 
   const weekdayToIndex: Record<string, number> = {
     domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6
@@ -725,22 +1005,12 @@ const [userData, setUserData] = useState({
             monitor: {
               name: cita.monitor.nombre_completo,
               email: cita.monitor.correo,
-              phone: '',
-              rating: 0,
-              photo: '',
             },
             date: cita.fecha_cita,
             time: cita.hora_inicio,
             endTime: cita.hora_fin,
             location: cita.ubicacion || '',
             status: cita.estado,
-            details: '',
-            studentNotes: '',
-            monitorNotes: '',
-            createdAt: '',
-            rating: 0,
-            feedback: '',
-            topics: [],
             duration: calculateDuration(cita.hora_inicio, cita.hora_fin)
           }))
 
@@ -750,6 +1020,8 @@ const [userData, setUserData] = useState({
 
           setUpcomingAppointments(upcoming)
           setHistoryAppointments(history)
+
+
         }
       } else {
         console.error("Error booking appointment:", responseData)
@@ -780,7 +1052,7 @@ const [userData, setUserData] = useState({
   const handleCancelAppointment = async (appointment: Appointment) => {
     try {
       const res = await fetch(`${API_BASE}/citas/${appointment.id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado: 'cancelada' })
       })
@@ -806,22 +1078,12 @@ const [userData, setUserData] = useState({
             monitor: {
               name: cita.monitor.nombre_completo,
               email: cita.monitor.correo,
-              phone: '',
-              rating: 0,
-              photo: '',
             },
             date: cita.fecha_cita,
             time: cita.hora_inicio,
             endTime: cita.hora_fin,
             location: cita.ubicacion || '',
             status: cita.estado,
-            details: '',
-            studentNotes: '',
-            monitorNotes: '',
-            createdAt: '',
-            rating: 0,
-            feedback: '',
-            topics: [],
             duration: calculateDuration(cita.hora_inicio, cita.hora_fin)
           }))
 
@@ -831,6 +1093,23 @@ const [userData, setUserData] = useState({
 
             setUpcomingAppointments(upcoming)
             setHistoryAppointments(history)
+
+          // Generar notificación de cita cancelada y eliminar reminder
+          setUserNotifications(prev => {
+            const cancelledResult = ensureUniqueNotification(
+              prev,
+              notifiedKeys,
+              userId,
+              'appointment_cancelled',
+              appointment.id,
+              'Cita cancelada',
+              `Tu cita de ${appointment.subject} ha sido cancelada`,
+              new Date().toISOString()
+            )
+            const reminderResult = removeReminderForAppointment(cancelledResult.notifications, cancelledResult.notifiedKeys, userId, appointment.id)
+            setNotifiedKeys(reminderResult.notifiedKeys)
+            return reminderResult.notifications
+          })
           }
 
           alert("Cita cancelada exitosamente")
@@ -970,6 +1249,32 @@ const [userData, setUserData] = useState({
 
         setUpcomingAppointments(upcoming)
         setHistoryAppointments(history)
+
+        // Verificar si necesita nuevo reminder (si la nueva fecha está dentro de 36h)
+        const newAppointmentDateTime = toLocalDate(updatedAppointment.date, updatedAppointment.time)
+        const now = new Date()
+        const hoursUntilNewAppointment = (newAppointmentDateTime.getTime() - now.getTime()) / (1000 * 60 * 60)
+        if (hoursUntilNewAppointment > 0 && hoursUntilNewAppointment <= 36) {
+          setUserNotifications(prev => {
+            const reminderExists = prev.some(n => n.type === 'appointment_reminder' && n.appointmentId === updatedAppointment.id)
+            if (!reminderExists) {
+              const reminderDate = new Date(now.getTime() + (hoursUntilNewAppointment - 1) * 60 * 60 * 1000)
+              const reminderResult = ensureUniqueNotification(
+                prev,
+                notifiedKeys,
+                userId,
+                'appointment_reminder',
+                updatedAppointment.id,
+                'Recordatorio de cita',
+                `Tienes una monitoría programada para ${updatedAppointment.subject} en ${Math.round(hoursUntilNewAppointment)} horas`,
+                reminderDate.toISOString()
+              )
+              setNotifiedKeys(reminderResult.notifiedKeys)
+              return reminderResult.notifications
+            }
+            return prev
+          })
+        }
 
         setShowModifyDialog(false)
         setSelectedAppointment(null)
@@ -1990,11 +2295,11 @@ const [userData, setUserData] = useState({
                 </div>
               </div>
             )}
-
+            
             {/* notificaciones */}
             {activeTab === "notifications" && (
               <div className="space-y-6">
-                {/* Mark All as Read Button */}
+                {/* Header with Filters */}
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">Notificaciones</h2>
@@ -2002,63 +2307,76 @@ const [userData, setUserData] = useState({
                       {userNotifications.filter(n => !n.read).length} notificaciones sin leer
                     </p>
                   </div>
-                  {userNotifications.some(n => !n.read) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setUserNotifications(prev => prev.map(n => ({ ...n, read: true })))}
-                    >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Marcar todas como leídas
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Select value={notificationFilter} onValueChange={setNotificationFilter}>
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Filtrar" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="unread">Sin leer</SelectItem>
+                        <SelectItem value="appointment_created">Citas creadas</SelectItem>
+                        <SelectItem value="appointment_reminder">Recordatorios</SelectItem>
+                        <SelectItem value="appointment_confirmed">Confirmadas</SelectItem>
+                        <SelectItem value="appointment_cancelled">Canceladas</SelectItem>
+                        <SelectItem value="appointment_completed">Completadas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {userNotifications.some(n => !n.read) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setUserNotifications(prev => {
+                            const updated = prev.map(n => ({ ...n, read: true }))
+                            syncNotifications(userId, updated)
+                            return updated
+                          })
+                        }}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Marcar todas como leídas
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Notifications List */}
                 <div className="space-y-4">
-                  {userNotifications.length === 0 ? (
-                    <Card>
-                      <CardContent className="p-8 text-center">
-                        <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes notificaciones</h3>
-                        <p className="text-gray-500">Las notificaciones aparecerán aquí cuando tengas actividades pendientes</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    userNotifications.map((notification) => (
-                      <Card key={notification.id} className={`transition-colors ${!notification.read ? 'border-l-4 border-l-red-800 bg-red-50' : ''}`}>
-                        <CardContent className="p-6">
-                          <div className="flex items-start gap-4">
-                            <div className={`p-2 rounded-full ${!notification.read ? 'bg-red-100' : 'bg-gray-100'}`}>
-                              {notification.type === 'appointment_reminder' && <Clock className="h-5 w-5 text-amber-600" />}
-                              {notification.type === 'appointment_confirmed' && <CheckCircle className="h-5 w-5 text-green-600" />}
-                              {notification.type === 'appointment_cancelled' && <XCircle className="h-5 w-5 text-red-600" />}
-                              {notification.type === 'appointment_completed' && <Award className="h-5 w-5 text-blue-600" />}
-                              {notification.type === 'system' && <Bell className="h-5 w-5 text-gray-600" />}
-                              {notification.type === 'monitor_message' && <MessageCircle className="h-5 w-5 text-purple-600" />}
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <h3 className="font-medium text-gray-900">{notification.title}</h3>
-                                  <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                                  <p className="text-xs text-gray-500 mt-2">
-                                    {new Date(notification.date).toLocaleDateString("es-ES", {
-                                      weekday: "long",
-                                      year: "numeric",
-                                      month: "long",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit"
-                                    })}
-                                  </p>
-                                </div>
+                  {(() => {
+                    const filteredNotifications = userNotifications.filter(notification => {
+                      if (notificationFilter === "all") return true
+                      if (notificationFilter === "unread") return !notification.read
+                      return notification.type === notificationFilter
+                    })
+
+                    return filteredNotifications.length === 0 ? (
+                      <Card>
+                        <CardContent className="p-8 text-center">
+                          <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes notificaciones</h3>
+                          <p className="text-gray-500">
+                            {notificationFilter === "all"
+                              ? "Las notificaciones aparecerán aquí cuando tengas actividades pendientes"
+                              : `No hay notificaciones de tipo "${notificationFilter}"`
+                            }
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      filteredNotifications.map((notification) => (
+                        <Card key={notification.id} className={`transition-colors group ${!notification.read ? 'border-l-4 border-l-red-800 bg-red-50' : ''}`}>
+                          <CardContent className="p-6">
+                            <div className="relative">
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-gray-900 text-lg">{notification.title}</h3>
+                                <p className="text-sm text-gray-700 mt-2">{notification.message}</p>
                                 {!notification.read && (
-                                  <div className="w-2 h-2 bg-red-800 rounded-full flex-shrink-0 mt-2"></div>
+                                  <div className="absolute top-0 right-0 w-2 h-2 bg-red-800 rounded-full"></div>
                                 )}
                               </div>
-                              {notification.appointmentId && (
-                                <div className="mt-3">
+                              <div className="flex items-center gap-2 mt-4">
+                                {notification.appointmentId && (
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -2069,17 +2387,36 @@ const [userData, setUserData] = useState({
                                   >
                                     Ver cita
                                   </Button>
-                                </div>
-                              )}
+                                )}
+                                {!notification.read && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setUserNotifications(prev => {
+                                        const updated = prev.map(n =>
+                                          n.id === notification.id ? { ...n, read: true } : n
+                                        )
+                                        syncNotifications(userId, updated)
+                                        return updated
+                                      })
+                                    }}
+                                  >
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    Marcar como leída
+                                  </Button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))
-                  )}
+                          </CardContent>
+                        </Card>
+                      ))
+                    )
+                  })()}
                 </div>
               </div>
             )}
+
 
             {/* Configuracion */}
             {activeTab === "settings" && (
@@ -2114,10 +2451,6 @@ const [userData, setUserData] = useState({
                             <Label htmlFor="email">Correo Electrónico</Label>
                             <Input id="email" type="email" value={userData.email} disabled />
                             <p className="text-xs text-gray-500">El correo institucional no se puede cambiar</p>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="phone">Teléfono</Label>
-                            <Input id="phone" type="phone" value={userData.phone} disabled />
                           </div>
                         </div>
 
@@ -2212,91 +2545,7 @@ const [userData, setUserData] = useState({
 
 
 
-      {/* Details Dialog */}
-      <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Detalles de la Cita</DialogTitle>
-            <DialogDescription>Información completa de tu monitoría</DialogDescription>
-          </DialogHeader>
-
-          {selectedAppointment && (
-            <div className="space-y-6">
-              {/* Monitor Info */}
-              <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
-                <div className="flex-1">
-                  <h3 className="font-medium text-gray-900">{selectedAppointment.monitor.name}</h3>
-
-                  <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                    <div className="flex items-center gap-1">
-                      <Mail className="h-3 w-3" />
-                      <span>{selectedAppointment.monitor.email}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Phone className="h-3 w-3" />
-                      <span>{selectedAppointment.monitor.phone}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Appointment Details */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Materia</label>
-                  <p className="text-sm text-gray-900">
-                    {selectedAppointment.subject} ({selectedAppointment.subjectCode})
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Estado</label>
-                  <div className="mt-1">
-                    <Badge className={getStatusColor(selectedAppointment.status)}>
-                      {getStatusIcon(selectedAppointment.status)}
-                      <span className="ml-1 capitalize">{selectedAppointment.status}</span>
-                    </Badge>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Fecha</label>
-                  <p className="text-sm text-gray-900">
-                    {new Date(selectedAppointment.date).toLocaleDateString("es-ES", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Horario</label>
-                  <p className="text-sm text-gray-900">
-                    {selectedAppointment.time} - {selectedAppointment.endTime}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Ubicación</label>
-                  <p className="text-sm text-gray-900">{selectedAppointment.location}</p>
-                </div>
-
-              </div>
-
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>
-              Cerrar
-            </Button>
-            {selectedAppointment?.status !== "completada" && (
-              <Button className="bg-red-800 hover:bg-red-900">
-                <MessageCircle className="h-4 w-4 mr-2" />
-                Contactar Monitor
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      
 
       {/* Modify Appointment Dialog */}
       <Dialog open={showModifyDialog} onOpenChange={setShowModifyDialog}>
@@ -2473,4 +2722,3 @@ const [userData, setUserData] = useState({
     </SidebarProvider>
   )
 }
-

@@ -68,10 +68,25 @@ export async function POST(req: NextRequest) {
   const isMonitor = await query(isMonitorQuery, [monitor_id]);
   if (isMonitor.length === 0) return NextResponse.json({ ok: false, msg: "No autorizado" }, { status: 403 });
 
+  // Check if monitor has assigned subject
+  const assignedSubjectQuery = `
+    SELECT materia_asignada_id FROM usuarios WHERE id = ?
+  `;
+  const assignedSubject = await query(assignedSubjectQuery, [monitor_id]);
+  if (assignedSubject.length === 0 || !assignedSubject[0].materia_asignada_id) {
+    return NextResponse.json({
+      ok: false,
+      msg: "El monitor no tiene una materia asignada. Solicita al administrador que te asigne una materia para poder crear horarios."
+    }, { status: 409 });
+  }
+
+  // Force materia_id to be the assigned subject
+  const forcedMateriaId = assignedSubject[0].materia_asignada_id;
+
   const insertSql = `
     INSERT INTO disponibilidades (monitor_id, materia_id, dia, hora_inicio, hora_fin, ubicacion, estado)
     VALUES (?, ?, ?, ?, ?, ?, 'Activa')
   `;
-  const result = await query(insertSql, [monitor_id, materia_id, dia, hora_inicio, hora_fin, ubicacion]);
-  return NextResponse.json({ ok: true, data: { id: result.insertId, ...req.body } });
+  const result = await query(insertSql, [monitor_id, forcedMateriaId, dia, hora_inicio, hora_fin, ubicacion]);
+  return NextResponse.json({ ok: true, data: { id: result.insertId, monitor_id, materia_id: forcedMateriaId, dia, hora_inicio, hora_fin, ubicacion } });
 }

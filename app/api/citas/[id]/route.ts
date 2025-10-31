@@ -1,8 +1,8 @@
 import { query } from "@/lib/db";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const { estado, fecha_cita, notas_monitor } = await req.json();
 
   if (!estado && !fecha_cita && notas_monitor === undefined) {
@@ -39,8 +39,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const citaId = parseInt(id);
 
   if (isNaN(citaId)) {
