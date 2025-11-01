@@ -79,9 +79,6 @@ import {
   EyeOff,
   Search,
   Filter,
-  ChevronsUpDown,
-  Check,
-  X,
 } from "lucide-react"
 
 function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (tab: string) => void }) {
@@ -243,13 +240,16 @@ export default function MonitorDashboard() {
   const [userId, setUserId] = useState<number | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
-  const [openSubjectFilter, setOpenSubjectFilter] = useState(false)
   const [inFlight, setInFlight] = useState<Record<string, boolean>>({})
+  const [notificationFilter, setNotificationFilter] = useState("all")
 
   // Notifications states
   const [userNotifications, setUserNotifications] = useState<Notification[]>([])
   const [prevAppointments, setPrevAppointments] = useState<MonitorAppointment[]>([])
   const [notifiedKeys, setNotifiedKeys] = useState<Set<string>>(new Set())
+  const [loadedNotifState, setLoadedNotifState] = useState(false)
+  const [loadedAppointments, setLoadedAppointments] = useState(false)
+
   const [notifications, setNotifications] = useState({
     emailReminders: false,
     smsReminders: false,
@@ -269,135 +269,6 @@ export default function MonitorDashboard() {
     defaultReminderTime: "30",
     favoriteSubjects: [] as string[],
   })
-
-  // Load user + materias
-  useEffect(() => {
-    const storedUser = localStorage.getItem("user")
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser)
-      setUserId(parsedUser.id)
-      const fullName = parsedUser.nombre_completo || parsedUser.nombre || ""
-      const [firstName, ...lastNameParts] = fullName.split(" ")
-      setMonitorData({
-        firstName: firstName || "",
-        lastName: lastNameParts.join(" ") || "",
-        email: parsedUser.correo || parsedUser.email || "",
-        program: parsedUser.programa || "",
-        semester: (parsedUser.semestre || parsedUser.semestre)?.toString() || "",
-        code: parsedUser.codigo || "",
-      })
-    }
-
-    // Fetch available subjects
-    const fetchSubjects = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/materias`)
-        if (response.ok) {
-          const subjectsData = await response.json()
-          setAvailableSubjects(subjectsData || [])
-        }
-      } catch (error) {
-        console.error("Error fetching subjects:", error)
-      }
-    }
-    fetchSubjects()
-  }, [])
-
-  // Cargar notificaciones y notifiedKeys cuando ya hay userId
-  useEffect(() => {
-    if (!userId) return
-    setUserNotifications(loadNotificationsForUser(userId))
-    setNotifiedKeys(loadNotifiedKeysForUser(userId))
-  }, [userId])
-
-  // Fetch data del monitor
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!userId) return
-      try {
-        // Perfil
-        const profileResponse = await fetch(`${API_BASE}/usuarios/${userId}`)
-        if (profileResponse.ok) {
-          const userData = await profileResponse.json()
-          const fullName = userData.nombre_completo || userData.nombre || ""
-          const [firstName, ...lastNameParts] = fullName.split(" ")
-          setMonitorData({
-            firstName: firstName || "",
-            lastName: lastNameParts.join(" ") || "",
-            email: userData.correo || userData.email || "",
-            program: userData.programa || "",
-            semester: (userData.semestre || userData.semestre)?.toString() || "",
-            code: userData.codigo || "",
-          })
-        }
-
-        // Materia asignada
-        const assignedSubjectResponse = await fetch(`${API_BASE}/usuarios/${userId}/materia-asignada`)
-        if (assignedSubjectResponse.ok) {
-          const assignedSubjectData = await assignedSubjectResponse.json()
-          setAssignedSubject(assignedSubjectData)
-        } else {
-          setAssignedSubject(null)
-        }
-
-        // Citas
-        const appointmentsResponse = await fetch(`${API_BASE}/citas?monitor_id=${userId}`)
-        let appointmentsData: MonitorAppointment[] = []
-        if (appointmentsResponse.ok) {
-          const appointmentsJson = await appointmentsResponse.json()
-          if (appointmentsJson.ok && appointmentsJson.data) {
-            appointmentsData = appointmentsJson.data.map((apt: any) => ({
-              id: apt.id.toString(),
-              student: {
-                name: apt.estudiante.nombre_completo,
-                email: apt.estudiante.correo,
-                phone: apt.estudiante.telefono || '',
-                program: apt.estudiante.programa || '',
-                semester: apt.estudiante.semestre || '',
-                photo: '/placeholder.svg?height=100&width=100',
-              },
-              subject: apt.materia.nombre,
-              subjectCode: apt.materia.codigo,
-              date: apt.fecha_cita,
-              time: apt.hora_inicio,
-              endTime: apt.hora_fin,
-              location: apt.ubicacion,
-              status: apt.estado,
-              details: apt.detalles || '',
-              createdAt: apt.created_at,
-            }))
-            setAppointments(appointmentsData)
-          } else {
-            setAppointments([])
-            appointmentsData = []
-          }
-        } else {
-          setAppointments([])
-          appointmentsData = []
-        }
-
-        // Disponibilidades
-        const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`)
-        if (availabilityResponse.ok) {
-          const availabilityData = await availabilityResponse.json()
-          setAvailabilitySlots(availabilityData)
-        }
-
-        // Preferences (si aplica)
-        const preferencesRes = await fetch(`${API_BASE}/user/preferences`)
-        if (preferencesRes.ok) {
-          const preferencesData = await preferencesRes.json()
-          setPreferences(preferencesData)
-        }
-
-        // Generar notificaciones con la nueva data
-        generateNotifications(appointmentsData)
-      } catch (error) {
-        console.error("Error fetching data:", error)
-      }
-    }
-    fetchData()
-  }, [userId])
 
   // Monitor profile data
   const [monitorData, setMonitorData] = useState({
@@ -424,7 +295,11 @@ export default function MonitorDashboard() {
     subjects: [] as string[],
   })
 
-  // Time helpers
+  const [editingSlot, setEditingSlot] = useState<AvailabilitySlot | null>(null)
+  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
+  const [appointments, setAppointments] = useState<MonitorAppointment[]>([])
+
+  // Helpers de tiempo
   const formatTime12Hour = (time24: string) => {
     if (!time24) return ""
     const [hours, minutes] = time24.split(':').map(Number)
@@ -453,9 +328,161 @@ export default function MonitorDashboard() {
     }))
   }
 
-  const [editingSlot, setEditingSlot] = useState<AvailabilitySlot | null>(null)
-  const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
-  const [appointments, setAppointments] = useState<MonitorAppointment[]>([])
+  // Load user + materias
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user")
+    if (storedUser) {
+      const parsedUser = JSON.parse(storedUser)
+      setUserId(parsedUser.id)
+      const fullName = parsedUser.nombre_completo || parsedUser.nombre || ""
+      const [firstName, ...lastNameParts] = fullName.split(" ")
+      setMonitorData({
+        firstName: firstName || "",
+        lastName: lastNameParts.join(" ") || "",
+        email: parsedUser.correo || parsedUser.email || "",
+        program: parsedUser.programa || "",
+        semester: (parsedUser.semestre ?? "")?.toString() || "",
+        code: parsedUser.codigo || "",
+      })
+    }
+
+    // Fetch available subjects
+    const fetchSubjects = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/materias`)
+        if (response.ok) {
+          const subjectsData = await response.json()
+          setAvailableSubjects(subjectsData || [])
+        }
+      } catch (error) {
+        console.error("Error fetching subjects:", error)
+      }
+    }
+    fetchSubjects()
+  }, [])
+
+  // Cargar notificaciones y notifiedKeys cuando ya hay userId
+  useEffect(() => {
+    if (!userId) return
+    setUserNotifications(loadNotificationsForUser(userId))
+    setNotifiedKeys(loadNotifiedKeysForUser(userId))
+    setLoadedNotifState(true)
+  }, [userId])
+
+  // Fetch data del monitor
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!userId) return
+      try {
+        // Perfil (no bloquea si 404)
+        try {
+          const profileResponse = await fetch(`${API_BASE}/usuarios/${userId}`)
+          if (profileResponse.ok) {
+            const userData = await profileResponse.json()
+            const fullName = userData.nombre_completo || userData.nombre || ""
+            const [firstName, ...lastNameParts] = fullName.split(" ")
+            setMonitorData({
+              firstName: firstName || "",
+              lastName: lastNameParts.join(" ") || "",
+              email: userData.correo || userData.email || "",
+              program: userData.programa || "",
+              semester: (userData.semestre ?? "")?.toString() || "",
+              code: userData.codigo || "",
+            })
+          }
+        } catch (e) {
+          console.error("Error fetching profile:", e)
+        }
+
+        // Materia asignada
+        try {
+          const assignedSubjectResponse = await fetch(`${API_BASE}/usuarios/${userId}/materia-asignada`)
+          if (assignedSubjectResponse.ok) {
+            const assignedSubjectData = await fetch(`${API_BASE}/usuarios/${userId}/materia-asignada`).then(r => r.json())
+            setAssignedSubject(assignedSubjectData)
+          } else {
+            setAssignedSubject(null)
+          }
+        } catch (e) {
+          setAssignedSubject(null)
+        }
+
+        // Citas
+        try {
+          const appointmentsResponse = await fetch(`${API_BASE}/citas?monitor_id=${userId}`)
+          if (appointmentsResponse.ok) {
+            const appointmentsJson = await appointmentsResponse.json()
+            if (appointmentsJson.ok && appointmentsJson.data) {
+              const mapped: MonitorAppointment[] = appointmentsJson.data.map((apt: any) => ({
+                id: apt.id.toString(),
+                student: {
+                  name: apt.estudiante.nombre_completo,
+                  email: apt.estudiante.correo,
+                  phone: apt.estudiante.telefono || '',
+                  program: apt.estudiante.programa || '',
+                  semester: apt.estudiante.semestre || '',
+                  photo: '/placeholder.svg?height=100&width=100',
+                },
+                subject: apt.materia.nombre,
+                subjectCode: apt.materia.codigo,
+                date: apt.fecha_cita,
+                time: apt.hora_inicio,
+                endTime: apt.hora_fin,
+                location: apt.ubicacion,
+                status: apt.estado,
+                details: apt.detalles || '',
+                createdAt: apt.created_at,
+              }))
+              setAppointments(mapped)
+            } else {
+              setAppointments([])
+            }
+          } else {
+            setAppointments([])
+          }
+        } catch (e) {
+          setAppointments([])
+        } finally {
+          setLoadedAppointments(true)
+        }
+
+        // Disponibilidades
+        try {
+          const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`)
+          if (availabilityResponse.ok) {
+            const availabilityData = await availabilityResponse.json()
+            setAvailabilitySlots(availabilityData)
+          }
+        } catch {}
+
+        // Preferences (si aplica)
+        try {
+          const preferencesRes = await fetch(`${API_BASE}/user/preferences`)
+          if (preferencesRes.ok) {
+            const preferencesData = await preferencesRes.json()
+            setPreferences(preferencesData)
+          }
+        } catch {}
+      } catch (error) {
+        console.error("Error fetching data:", error)
+      }
+    }
+    fetchData()
+  }, [userId])
+
+  // Disparar generación de notificaciones cuando:
+  // - Ya se cargaron desde storage (loadedNotifState)
+  // - Ya se cargaron citas (loadedAppointments)
+  // - Hay citas
+  useEffect(() => {
+    if (!userId) return
+    if (!loadedNotifState || !loadedAppointments) return
+    if (appointments.length === 0) return
+    generateNotifications(appointments)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, loadedNotifState, loadedAppointments, appointments])
+
+  const addTwoHoursMemo = addTwoHours // (para evitar recreación innecesaria)
 
   // Availability handlers
   const handleAddAvailability = async () => {
@@ -559,70 +586,66 @@ export default function MonitorDashboard() {
     }
   }
 
-const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
-  if (!confirm("¿Eliminar definitivamente este horario? Esta acción no se puede deshacer.")) return;
+  const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
+    if (!confirm("¿Eliminar definitivamente este horario? Esta acción no se puede deshacer.")) return;
 
-  try {
-    for (const id of slot.ids) {
-      const res = await fetch(`/api/disponibilidades/${id}`, { method: "DELETE" });
+    try {
+      for (const id of slot.ids) {
+        const res = await fetch(`/api/disponibilidades/${id}`, { method: "DELETE" });
 
-      if (res.status === 409) {
-        let payload: any = null;
-        try {
-          payload = await res.json();
-        } catch {
-          payload = null;
+        if (res.status === 409) {
+          let payload: any = null;
+          try {
+            payload = await res.json();
+          } catch {
+            payload = null;
+          }
+
+          console.warn("⚠️ Conflicto detectado al eliminar disponibilidad:", payload);
+
+          // Solo aviso, NO desactivar automáticamente
+          toast({
+            title: "No se puede eliminar",
+            description:
+              payload?.message || payload?.msg ||
+              "Esta disponibilidad tiene citas registradas. Desactívala si no quieres más reservas y conserva el histórico.",
+            variant: "destructive",
+          });
+          return;
         }
 
-        console.warn("⚠️ Conflicto detectado al eliminar disponibilidad:", payload);
-
-        toast({
-          title: "No se puede eliminar",
-          description:
-            payload?.message || payload?.msg ||
-            "Esta disponibilidad tiene citas registradas. Desactívala si no quieres más reservas y conserva el histórico.",
-          variant: "destructive",
-        });
-        return;
+        if (!res.ok) {
+          let payload: any = null;
+          try { payload = await res.json(); } catch {}
+          toast({
+            title: "Error",
+            description: payload?.message || payload?.msg || "No se pudo eliminar la disponibilidad.",
+            variant: "destructive",
+          });
+          return;
+        }
       }
 
+      // Todos OK → quita del estado
+      setAvailabilitySlots(prev =>
+        prev.filter(s =>
+          s.day !== slot.day ||
+          s.startTime !== slot.startTime ||
+          s.endTime !== slot.endTime ||
+          s.location !== slot.location
+        )
+      );
 
-      if (!res.ok) {
-        let payload: any = null;
-        try { payload = await res.json(); } catch {}
-        toast({
-          title: "Error",
-          description: payload?.message || payload?.msg || "No se pudo eliminar la disponibilidad.",
-          variant: "destructive",
-        });
-        return;
-      }
+      toast({ title: "Eliminada", description: "La disponibilidad fue eliminada." });
+    } catch (e) {
+      console.error(e);
+      toast({
+        title: "Error",
+        description: "Error interno al eliminar.",
+        variant: "destructive",
+      });
     }
-
-    // Todos OK → quita del estado
-    setAvailabilitySlots(prev =>
-      prev.filter(s =>
-        s.day !== slot.day ||
-        s.startTime !== slot.startTime ||
-        s.endTime !== slot.endTime ||
-        s.location !== slot.location
-      )
-    );
-
-    toast({ title: "Eliminada", description: "La disponibilidad fue eliminada." });
-  } catch (e) {
-    console.error(e);
-    toast({
-      title: "Error",
-      description: "Error interno al eliminar.",
-      variant: "destructive",
-    });
-  }
-};
-
-
-
-
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -654,7 +677,12 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
     }
   }
 
-  // ---- CRUD Citas (sin cambios de UI) ----
+  // ---- CRUD Citas ----
+  const handleViewAppointmentDetails = (appointment: MonitorAppointment) => {
+    setSelectedAppointmentDetails(appointment)
+    setShowAppointmentDetailsDialog(true)
+  }
+
   const handleConfirmAppointment = async (appointment: MonitorAppointment) => {
     if (!confirm("¿Estás seguro de que quieres confirmar esta cita?")) return
     try {
@@ -777,7 +805,21 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
     return matchesSearch && matchesFilter
   })
 
-  // ---- Generación de notificaciones (solo lógica, sin tocar UI) ----
+  // FIX: Merge estable de notificaciones para conservar estado "read"
+  function mergeNotificationsById(existing: Notification[], incoming: Notification[]) {
+    const map = new Map(existing.map(n => [n.id, n]))
+    for (const n of incoming) {
+      const prev = map.get(n.id)
+      if (prev) {
+        map.set(n.id, { ...prev, ...n, read: prev.read || n.read })
+      } else {
+        map.set(n.id, n)
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  }
+
+  // ---- Generación de notificaciones ----
   const syncNotifications = (uid: number, items: Notification[]) => {
     saveNotificationsForUser(uid, items)
   }
@@ -788,24 +830,20 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
     const now = new Date()
     const THIRTY_SIX_HOURS = 36 * 60 * 60 * 1000
 
-    // Trabajamos con copias mutables
-    let nextNotifications = [...userNotifications]
+    let newNotifications: Notification[] = []
     const keys = new Set(notifiedKeys)
 
-    // Map para comparar cambios
     const prevMap = new Map(prevAppointments.map(apt => [apt.id, apt]))
 
-    // Helper para añadir si no existe (anti-duplicados)
     const pushUnique = (n: Notification, key: string) => {
       if (keys.has(key)) return
-      nextNotifications = [n, ...nextNotifications].slice(0, 100)
+      newNotifications.push(n)
       keys.add(key)
     }
 
-    // Remueve recordatorios asociados a una cita
     const removeRemindersFor = (appointmentId: string) => {
-      nextNotifications = nextNotifications.filter(n => !(n.type === "appointment_reminder" && n.appointmentId === appointmentId))
-      // limpiar llaves de recordatorio para esa cita
+      // FIX: No eliminar otras notificaciones al limpiar recordatorios
+      newNotifications = newNotifications.filter(n => !(n.type === "appointment_reminder" && n.appointmentId === appointmentId))
       const cleaned = new Set<string>()
       keys.forEach(k => {
         if (!k.startsWith(`reminder:${appointmentId}:`)) cleaned.add(k)
@@ -818,13 +856,14 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
       const prev = prevMap.get(apt.id)
       const startDT = new Date(`${apt.date}T${apt.time}`)
 
-      // 1) Nueva cita -> notificación de "creada" SOLO si es futura o muy reciente (últimas 24h)
+      // FIX: Detectar "citas nuevas" aunque no exista estado previo
       if (!prev) {
-        const key = `created:${apt.id}`
-        const hoursAgo = now.getTime() - startDT.getTime()
-        if (hoursAgo <= 24 * 60 * 60 * 1000) {
+        const startDT = new Date(`${apt.date}T${apt.time}`)
+        const now = new Date()
+        const hoursAgo = (now.getTime() - startDT.getTime()) / (1000 * 60 * 60)
+        if (hoursAgo <= 24) {
           pushUnique({
-            id: `appointment_created-${apt.id}-${Date.now()}`,
+            id: `appointment_created-${apt.id}`,
             type: "appointment_created",
             title: "Nueva cita agendada",
             message: `${apt.subject} con ${apt.student.name} el ${new Date(apt.date).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
@@ -835,36 +874,37 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
         }
       }
 
-      // 2) Cambio de estado -> confirmada/cancelada/completada
+      // FIX: Manejo completo de cambios de estado
       if (prev && prev.status !== apt.status) {
         if (apt.status === "cancelada") {
-          // Eliminar recordatorios existentes de esta cita
+          // FIX: limpiar solo recordatorios de esa cita
           removeRemindersFor(apt.id)
+
           pushUnique({
-            id: `appointment_cancelled-${apt.id}-${Date.now()}`,
+            id: `appointment_cancelled-${apt.id}`,
             type: "appointment_cancelled",
             title: "Cita cancelada",
-            message: `Tu cita de ${apt.subject} con ${apt.student.name} ha sido cancelada`,
+            message: `El estudiante canceló la cita de ${apt.subject}.`,
             date: new Date().toISOString(),
             read: false,
             appointmentId: apt.id
           }, `status:${apt.id}:cancelada`)
         } else if (apt.status === "confirmada") {
           pushUnique({
-            id: `appointment_confirmed-${apt.id}-${Date.now()}`,
+            id: `appointment_confirmed-${apt.id}`,
             type: "appointment_confirmed",
             title: "Cita confirmada",
-            message: `Tu cita de ${apt.subject} con ${apt.student.name} ha sido confirmada`,
+            message: `Confirmaste la cita de ${apt.subject} con ${apt.student.name}.`,
             date: new Date().toISOString(),
             read: false,
             appointmentId: apt.id
           }, `status:${apt.id}:confirmada`)
         } else if (apt.status === "completada") {
           pushUnique({
-            id: `appointment_completed-${apt.id}-${Date.now()}`,
+            id: `appointment_completed-${apt.id}`,
             type: "appointment_completed",
             title: "Cita completada",
-            message: `Tu cita de ${apt.subject} con ${apt.student.name} ha sido completada`,
+            message: `Finalizaste la monitoría de ${apt.subject} con ${apt.student.name}.`,
             date: new Date().toISOString(),
             read: false,
             appointmentId: apt.id
@@ -872,33 +912,31 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
         }
       }
 
-      // 3) Recordatorio (solo futuras, dentro de 36h, no canceladas/completadas)
+      // FIX: Recordatorios solo para futuras ≤36h y limpieza segura
+      const msUntilStart = new Date(`${apt.date}T${apt.time}`).getTime() - Date.now()
       if (apt.status !== "cancelada" && apt.status !== "completada") {
-        const msUntilStart = startDT.getTime() - now.getTime()
         if (msUntilStart > 0 && msUntilStart <= THIRTY_SIX_HOURS) {
-          const key = `reminder:${apt.id}:${startDT.toDateString()}`
           pushUnique({
-            id: `appointment_reminder-${apt.id}-${Date.now()}`,
+            id: `appointment_reminder-${apt.id}`,
             type: "appointment_reminder",
             title: "Recordatorio de cita",
-            message: `Tienes una monitoría de ${apt.subject} con ${apt.student.name} el ${new Date(apt.date).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
+            message: `Tienes ${apt.subject} con ${apt.student.name} el ${new Date(apt.date).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
             date: new Date().toISOString(),
             read: false,
             appointmentId: apt.id
-          }, key)
+          }, `reminder:${apt.id}:${new Date(apt.date).toDateString()}`)
         } else {
-          // Fuera de ventana -> aseguramos que no queden recordatorios “viejos”
-          const beforeLen = nextNotifications.length
+          // FIX: salir de ventana → eliminar recordatorios de esa cita
           removeRemindersFor(apt.id)
-          // (si no había, no pasa nada)
         }
       }
     }
 
-    // Persistir cambios si hubo variación
     if (userId) {
-      setUserNotifications(nextNotifications)
-      saveNotificationsForUser(userId, nextNotifications)
+      // FIX: Persistencia en localStorage (scope por monitor)
+      const merged = mergeNotificationsById(userNotifications, newNotifications)
+      setUserNotifications(merged)
+      saveNotificationsForUser(userId, merged)
       setNotifiedKeys(keys)
       saveNotifiedKeysForUser(userId, keys)
       setPrevAppointments(currentAppointments)
@@ -933,9 +971,9 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                      Notificaciones
                      {userNotifications.filter(n => !n.read).length > 0 && (
                       <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                      {userNotifications.filter(n => !n.read).length}
-                                        </span>
-                      )}
+                        {userNotifications.filter(n => !n.read).length}
+                      </span>
+                     )}
                   </Button>
                 </div>
               )}
@@ -1041,11 +1079,8 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                           <span className="font-medium">
                             {(() => {
                               const now = new Date()
-                              const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()))
-                              startOfWeek.setHours(0, 0, 0, 0)
-                              const endOfWeek = new Date(startOfWeek)
-                              endOfWeek.setDate(startOfWeek.getDate() + 6)
-                              endOfWeek.setHours(23, 59, 59, 999)
+                              const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                              const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
 
                               return completedAppointments.filter(apt => {
                                 const aptDate = new Date(apt.date)
@@ -1059,11 +1094,8 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                           <span className="font-medium">
                             {(() => {
                               const now = new Date()
-                              const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()))
-                              startOfWeek.setHours(0, 0, 0, 0)
-                              const endOfWeek = new Date(startOfWeek)
-                              endOfWeek.setDate(startOfWeek.getDate() + 6)
-                              endOfWeek.setHours(23, 59, 59, 999)
+                              const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                              const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
 
                               return completedAppointments.filter(apt => {
                                 const aptDate = new Date(apt.date)
@@ -1081,11 +1113,8 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                           <span className="font-medium">
                             {(() => {
                               const now = new Date()
-                              const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()))
-                              startOfWeek.setHours(0, 0, 0, 0)
-                              const endOfWeek = new Date(startOfWeek)
-                              endOfWeek.setDate(startOfWeek.getDate() + 6)
-                              endOfWeek.setHours(23, 59, 59, 999)
+                              const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                              const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
 
                               const weeklyAppointments = completedAppointments.filter(apt => {
                                 const aptDate = new Date(apt.date)
@@ -1147,6 +1176,7 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                           
                             <Badge className={getStatusColor(appointment.status)}>
                               {getStatusIcon(appointment.status)}
                               <span className="ml-1 capitalize">{appointment.status}</span>
@@ -1212,20 +1242,23 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                   </TabsList>
 
                   <TabsContent value="upcoming" className="space-y-4">
-                    {filteredUpcomingAppointments.length === 0 ? (
-                      <Card>
-                        <CardContent className="p-8 text-center">
-                          <CalendarDays className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                          <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes citas próximas</h3>
-                          <p className="text-gray-500 mb-4">No hay monitorías programadas para los próximos días</p>
-                          <Button className="bg-red-800 hover:bg-red-900" onClick={() => setActiveTab("availability")}>
-                            <Plus className="h-4 w-4 mr-2" />
-                            Configurar Disponibilidad
-                          </Button>
-                        </CardContent>
-                      </Card>
-                    ) : (
-                      filteredUpcomingAppointments.map((appointment) => (
+                    {(() => {
+                      if (filteredUpcomingAppointments.length === 0) {
+                        return (
+                          <Card>
+                            <CardContent className="p-8 text-center">
+                              <CalendarDays className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                              <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes citas próximas</h3>
+                              <p className="text-gray-500 mb-4">No hay monitorías programadas para los próximos días</p>
+                              <Button className="bg-red-800 hover:bg-red-900" onClick={() => setActiveTab("availability")}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                Configurar Disponibilidad
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        )
+                      }
+                      return filteredUpcomingAppointments.map((appointment) => (
                         <Card key={appointment.id}>
                           <CardContent className="p-6">
                             <div className="flex items-start justify-between">
@@ -1256,7 +1289,6 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                                       <span>{appointment.location}</span>
                                     </div>
                                   </div>
-
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
@@ -1271,6 +1303,10 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleViewAppointmentDetails(appointment)}>
+                                      <Eye className="h-4 w-4 mr-2" />
+                                      Ver Detalles
+                                    </DropdownMenuItem>
                                     {appointment.status === "pendiente" && (
                                       <DropdownMenuItem onClick={() => handleConfirmAppointment(appointment)}>
                                         <CheckCircle className="h-4 w-4 mr-2" />
@@ -1296,7 +1332,7 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                           </CardContent>
                         </Card>
                       ))
-                    )}
+                    })()}
                   </TabsContent>
 
                   <TabsContent value="completed" className="space-y-4">
@@ -1534,11 +1570,8 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                         <p className="text-2xl font-bold text-gray-900">
                           {(() => {
                             const now = new Date()
-                            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()))
-                            startOfWeek.setHours(0, 0, 0, 0)
-                            const endOfWeek = new Date(startOfWeek)
-                            endOfWeek.setDate(startOfWeek.getDate() + 6)
-                            endOfWeek.setHours(23, 59, 59, 999)
+                            const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                            const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
 
                             return completedAppointments.filter(apt => {
                               const aptDate = new Date(apt.date)
@@ -1552,11 +1585,8 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                         <p className="text-2xl font-bold text-gray-900">
                           {(() => {
                             const now = new Date()
-                            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()))
-                            startOfWeek.setHours(0, 0, 0, 0)
-                            const endOfWeek = new Date(startOfWeek)
-                            endOfWeek.setDate(startOfWeek.getDate() + 6)
-                            endOfWeek.setHours(23, 59, 59, 999)
+                            const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                            const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
 
                             return completedAppointments.filter(apt => {
                               const aptDate = new Date(apt.date)
@@ -1574,11 +1604,8 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                         <p className="text-2xl font-bold text-gray-900">
                           {(() => {
                             const now = new Date()
-                            const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()))
-                            startOfWeek.setHours(0, 0, 0, 0)
-                            const endOfWeek = new Date(startOfWeek)
-                            endOfWeek.setDate(startOfWeek.getDate() + 6)
-                            endOfWeek.setHours(23, 59, 59, 999)
+                            const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                            const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
 
                             const weeklyAppointments = completedAppointments.filter(apt => {
                               const aptDate = new Date(apt.date)
@@ -1597,7 +1624,7 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
             {/* notificaciones */}
             {activeTab === "notifications" && (
               <div className="space-y-6">
-                {/* Mark All as Read Button */}
+                {/* Header con filtros */}
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">Notificaciones</h2>
@@ -1605,71 +1632,92 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                       {userNotifications.filter(n => !n.read).length} notificaciones sin leer
                     </p>
                   </div>
-                  {userNotifications.some(n => !n.read) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (!userId) return
-                        setUserNotifications(prev => {
-                          const updated = prev.map(n => ({ ...n, read: true }))
-                          saveNotificationsForUser(userId, updated)
-                          return updated
-                        })
-                      }}
-                    >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Marcar todas como leídas
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Select value={notificationFilter} onValueChange={setNotificationFilter}>
+                      <SelectTrigger className="w-40">
+                        <SelectValue placeholder="Filtrar" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="unread">Sin leer</SelectItem>
+                        <SelectItem value="appointment_created">Citas creadas</SelectItem>
+                        <SelectItem value="appointment_reminder">Recordatorios</SelectItem>
+                        <SelectItem value="appointment_confirmed">Confirmadas</SelectItem>
+                        <SelectItem value="appointment_cancelled">Canceladas</SelectItem>
+                        <SelectItem value="appointment_completed">Completadas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {userNotifications.some(n => !n.read) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (!userId) return
+                          setUserNotifications(prev => {
+                            const updated = prev.map(n => ({ ...n, read: true }))
+                            saveNotificationsForUser(userId, updated)
+                            return updated
+                          })
+                        }}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Marcar todas como leídas
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Notifications List */}
+                {/* Lista */}
                 <div className="space-y-4">
-                  {userNotifications.length === 0 ? (
-                    <Card>
-                      <CardContent className="p-8 text-center">
-                        <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes notificaciones</h3>
-                        <p className="text-gray-500">Las notificaciones aparecerán aquí cuando tengas actividades pendientes</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    userNotifications.map((notification) => (
-                      <Card key={notification.id} className={`transition-colors group ${!notification.read ? 'border-l-4 border-l-red-800 bg-red-50' : ''}`}>
-                        <CardContent className="p-6">
-                          <div className="flex items-start gap-4 relative">
-                            <div className={`p-2 rounded-full ${!notification.read ? 'bg-red-100' : 'bg-gray-100'}`}>
-                              {notification.type === 'appointment_created' && <Plus className="h-5 w-5 text-blue-600" />}
-                              {notification.type === 'appointment_reminder' && <Clock className="h-5 w-5 text-amber-600" />}
-                              {notification.type === 'appointment_confirmed' && <CheckCircle className="h-5 w-5 text-green-600" />}
-                              {notification.type === 'appointment_cancelled' && <XCircle className="h-5 w-5 text-red-600" />}
-                              {notification.type === 'appointment_completed' && <Award className="h-5 w-5 text-blue-600" />}
-                              {notification.type === 'system' && <Bell className="h-5 w-5 text-gray-600" />}
-                              {notification.type === 'monitor_message' && <MessageCircle className="h-5 w-5 text-purple-600" />}
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <h3 className="font-medium text-gray-900">{notification.title}</h3>
-                                  <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                                  <p className="text-xs text-gray-500 mt-2">
-                                    {new Date(notification.date).toLocaleDateString("es-ES", {
-                                      weekday: "long",
-                                      year: "numeric",
-                                      month: "long",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit"
-                                    })}
-                                  </p>
-                                </div>
+                  {(() => {
+                    const filteredNotifications = userNotifications
+                      .filter(notification => {
+                        if (notificationFilter === "all") return true
+                        if (notificationFilter === "unread") return !notification.read
+                        return notification.type === notificationFilter
+                      })
+                      // Orden: más reciente primero
+                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+                    return filteredNotifications.length === 0 ? (
+                      <Card>
+                        <CardContent className="p-8 text-center">
+                          <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes notificaciones</h3>
+                          <p className="text-gray-500">
+                            {notificationFilter === "all"
+                              ? "Las notificaciones aparecerán aquí cuando tengas actividades pendientes"
+                              : `No hay notificaciones de tipo "${notificationFilter}"`
+                            }
+                          </p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      filteredNotifications.map((notification) => (
+                        <Card key={notification.id} className={`transition-colors group ${!notification.read ? 'border-l-4 border-l-red-800 bg-red-50' : ''}`}>
+                          <CardContent className="p-6">
+                            <div className="relative">
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-gray-900 text-lg">{notification.title}</h3>
+                                <p className="text-sm text-gray-700 mt-2">{notification.message}</p>
+                                <p className="text-xs text-gray-500 mt-2">
+                                  {new Date(notification.date).toLocaleString("es-CO", {
+                                    weekday: "long",
+                                    year: "numeric",
+                                    month: "long",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                    timeZone: "America/Bogota",
+                                  })}
+                                </p>
                                 {!notification.read && (
-                                  <div className="w-2 h-2 bg-red-800 rounded-full flex-shrink-0 mt-2"></div>
+                                  <div className="absolute top-0 right-0 w-2 h-2 bg-red-800 rounded-full"></div>
                                 )}
                               </div>
-                              {notification.appointmentId && (
-                                <div className="mt-3">
+                              <div className="flex items-center gap-2 mt-4">
+                                {notification.appointmentId && (
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -1679,36 +1727,38 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                                   >
                                     Ver cita
                                   </Button>
-                                </div>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() => {
-                                  if (!userId) return
-                                  setUserNotifications(prev => {
-                                    const updated = prev.map(n =>
-                                      n.id === notification.id ? { ...n, read: true } : n
-                                    )
-                                    saveNotificationsForUser(userId, updated)
-                                    return updated
-                                  })
-                                }}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
+                                )}
+                                {!notification.read && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      if (!userId) return
+                                      setUserNotifications(prev => {
+                                        const updated = prev.map(n =>
+                                          n.id === notification.id ? { ...n, read: true } : n
+                                        )
+                                        saveNotificationsForUser(userId, updated)
+                                        return updated
+                                      })
+                                    }}
+                                  >
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    Marcar como leída
+                                  </Button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))
-                  )}
+                          </CardContent>
+                        </Card>
+                      ))
+                    )
+                  })()}
                 </div>
               </div>
             )}
 
-            {/* Configuracion */}
+            {/* Configuración */}
             {activeTab === "settings" && (
               <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="profile" className="space-y-6">
@@ -1823,7 +1873,7 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
         </SidebarInset>
       </div>
 
-      {/* agregar y editar horarios monitores */}
+      {/* agregar/editar horarios */}
       <Dialog open={showAvailabilityDialog} onOpenChange={(open) => {
         setShowAvailabilityDialog(open)
         if (!open) {
@@ -1945,171 +1995,6 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
         </DialogContent>
       </Dialog>
 
-      {/* Student Profile Dialog */}
-      <Dialog open={showStudentProfileDialog} onOpenChange={setShowStudentProfileDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Perfil del Estudiante</DialogTitle>
-            <DialogDescription>Información del estudiante para esta cita</DialogDescription>
-          </DialogHeader>
-
-          {selectedStudentProfile && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-                  <User className="h-8 w-8 text-gray-500" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-900">{selectedStudentProfile.nombre}</h3>
-                  <p className="text-sm text-gray-600">{selectedStudentProfile.programa}</p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Correo:</span>
-                  <span className="text-sm font-medium">{selectedStudentProfile.correo}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Teléfono:</span>
-                  <span className="text-sm font-medium">{selectedStudentProfile.telefono || 'No disponible'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Semestre:</span>
-                  <span className="text-sm font-medium">{selectedStudentProfile.semestre || 'No disponible'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Código:</span>
-                  <span className="text-sm font-medium">{selectedStudentProfile.codigo || 'No disponible'}</span>
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Appointment Details Dialog */}
-      <Dialog open={showAppointmentDetailsDialog} onOpenChange={setShowAppointmentDetailsDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Detalles de la Cita</DialogTitle>
-            <DialogDescription>Información completa de la monitoría</DialogDescription>
-          </DialogHeader>
-
-          {selectedAppointmentDetails && (
-            <div className="space-y-6">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-4">
-                  <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-                    <User className="h-8 w-8 text-gray-500" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900">{selectedAppointmentDetails.student.name}</h3>
-                    <p className="text-sm text-gray-600">{selectedAppointmentDetails.subject} ({selectedAppointmentDetails.subjectCode})</p>
-                    <Badge className={`${getStatusColor(selectedAppointmentDetails.status)} mt-2`}>
-                      {getStatusIcon(selectedAppointmentDetails.status)}
-                      <span className="ml-1 capitalize">{selectedAppointmentDetails.status}</span>
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Información de la Cita</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Fecha:</span>
-                        <span className="font-medium">{new Date(selectedAppointmentDetails.date).toLocaleDateString("es-ES")}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Horario:</span>
-                        <span className="font-medium">
-                          {selectedAppointmentDetails.time} - {selectedAppointmentDetails.endTime}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Ubicación:</span>
-                        <span className="font-medium">{selectedAppointmentDetails.location}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Creada:</span>
-                        <span className="font-medium">{new Date(selectedAppointmentDetails.createdAt).toLocaleDateString("es-ES")}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Información del Estudiante</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Nombre:</span>
-                        <span className="font-medium">{selectedAppointmentDetails.student.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Correo:</span>
-                        <span className="font-medium">{selectedAppointmentDetails.student.email}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Teléfono:</span>
-                        <span className="font-medium">{selectedAppointmentDetails.student.phone || 'No disponible'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Programa:</span>
-                        <span className="font-medium">{selectedAppointmentDetails.student.program || 'No disponible'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Semestre:</span>
-                        <span className="font-medium">{selectedAppointmentDetails.student.semester || 'No disponible'}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {selectedAppointmentDetails.details && (
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">Detalles Adicionales</h4>
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <p className="text-sm text-gray-700">{selectedAppointmentDetails.details}</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-4 border-t">
-                {selectedAppointmentDetails.status === "pendiente" && (
-                  <Button onClick={() => handleConfirmAppointment(selectedAppointmentDetails)} className="bg-amber-600 hover:bg-amber-700">
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Confirmar Cita
-                  </Button>
-                )}
-                {selectedAppointmentDetails.status === "confirmada" && (
-                  <Button onClick={() => handleCompleteAppointment(selectedAppointmentDetails)} className="bg-green-600 hover:bg-green-700">
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Marcar como Completada
-                  </Button>
-                )}
-                {(selectedAppointmentDetails.status === "pendiente" || selectedAppointmentDetails.status === "confirmada") && (
-                  <Button onClick={() => handleCancelAppointment(selectedAppointmentDetails)} variant="outline" className="text-red-600 border-red-600 hover:bg-red-50">
-                    <XCircle className="h-4 w-4 mr-2" />
-                    Cancelar Cita
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAppointmentDetailsDialog(false)}>
-              Cerrar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Change Password Dialog */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
         <DialogContent>
@@ -2135,7 +2020,7 @@ const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
                   className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                   onClick={() => setShowPassword(!showPassword)}
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  <EyeOff className="h-4 w-4" />
                 </Button>
               </div>
             </div>

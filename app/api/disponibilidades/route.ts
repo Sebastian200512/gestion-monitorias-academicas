@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       JOIN materias m ON d.materia_id = m.id
       JOIN usuarios u ON d.monitor_id = u.id
       WHERE d.estado = 'Activa' AND d.materia_id = ?
-      ORDER BY FIELD(d.dia, 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes'), d.hora_inicio ASC
+      ORDER BY FIELD(d.dia, 'Lunes','Martes','Miercoles','Jueves','Viernes','Sabado'), d.hora_inicio ASC
     `
     : `
       SELECT
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       JOIN materias m ON d.materia_id = m.id
       JOIN usuarios u ON d.monitor_id = u.id
       WHERE d.estado = 'Activa'
-      ORDER BY FIELD(d.dia, 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes'), d.hora_inicio ASC
+      ORDER BY FIELD(d.dia, 'Lunes','Martes','Miercoles','Jueves','Viernes','Sabado'), d.hora_inicio ASC
     `;
 
   const data = await query(sql, materia ? [Number(materia)] : []);

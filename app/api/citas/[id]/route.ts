@@ -3,10 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { estado, fecha_cita, notas_monitor } = await req.json();
+  const { estado, fecha_cita, notas_monitor, rating, feedback } = await req.json();
 
-  if (!estado && !fecha_cita && notas_monitor === undefined) {
-    return NextResponse.json({ ok: false, msg: "Estado, fecha o notas requeridos" }, { status: 400 });
+  if (!estado && !fecha_cita && notas_monitor === undefined && rating === undefined && feedback === undefined) {
+    return NextResponse.json({ ok: false, msg: "Al menos un campo requerido: estado, fecha, notas, rating o feedback" }, { status: 400 });
   }
 
   try {
@@ -25,6 +25,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (notas_monitor !== undefined) {
       updates.push(`notas_monitor = ?`);
       params.push(notas_monitor);
+    }
+    if (rating !== undefined) {
+      updates.push(`rating = ?`);
+      params.push(rating);
+    }
+    if (feedback !== undefined) {
+      updates.push(`feedback = ?`);
+      params.push(feedback);
     }
 
     updateSql += updates.join(', ') + ` WHERE id = ?`;
