@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,10 +26,10 @@ import {
   SidebarContent,
   SidebarHeader,
   SidebarMenu,
-  SidebarTrigger,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
+  SidebarTrigger,
   SidebarInset,
 } from "@/components/ui/sidebar";
 import {
@@ -104,7 +104,7 @@ function AppSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveT
       <SidebarContent className="p-4">
         <SidebarMenu>
           {menuItems.map((item) => (
-            <SidebarMenuItem key={item.title}>
+            <SidebarMenuItem key={item.value}>
               <SidebarMenuButton asChild isActive={activeTab === item.value}>
                 <button
                   onClick={() => setActiveTab(item.value)}
@@ -221,45 +221,71 @@ const API_BASE = "/api";
 /* =========================================================
    NOTIFICACIONES (CLON MONITOR) — Helpers de storage
 ========================================================= */
-const studentNotifKey = (userId: number) => `student_notifications_${userId}`;
-const studentNotifiedKeysKey = (userId: number) => `student_notified_keys_${userId}`;
+// FIX: Claves únicas por estudiante
+const notifStorageKey = (uid: number) => `student_notifications_${uid}`;
+const notifiedKeysStorageKey = (uid: number) => `student_notified_keys_${uid}`;
+const notifVersionKey = (uid: number) => `student_notifications_version_${uid}`; // para migraciones
+const CURRENT_NOTIF_VERSION = 'v2';
 
-function loadStudentNotifications(userId: number): Notification[] {
+function loadNotificationsForUser(userId: number): Notification[] {
   try {
-    const raw = localStorage.getItem(studentNotifKey(userId));
-    return raw ? JSON.parse(raw) : [];
+    const rawNotifs = localStorage.getItem(notifStorageKey(userId));
+    const rawKeys = localStorage.getItem(notifiedKeysStorageKey(userId));
+    const rawVer  = localStorage.getItem(notifVersionKey(userId));
+
+    let loadedNotifs: Notification[] = [];
+    let loadedKeys: string[] = [];
+
+    if (rawNotifs) loadedNotifs = JSON.parse(rawNotifs);
+    if (rawKeys) loadedKeys = JSON.parse(rawKeys);
+
+    // FIX: Migración simple por versión (si cambiaste formato de date/ids)
+    if (rawVer !== CURRENT_NOTIF_VERSION) {
+      // Normaliza: garantiza que cada notif tenga date en ISO
+      loadedNotifs = loadedNotifs.map(n => ({
+        ...n,
+        date: new Date(n.date).toISOString(), // asegura ISO
+      }));
+      localStorage.setItem(notifVersionKey(userId), CURRENT_NOTIF_VERSION);
+    }
+
+    return loadedNotifs;
   } catch {
     return [];
   }
 }
-function saveStudentNotifications(userId: number, items: Notification[]) {
-  localStorage.setItem(studentNotifKey(userId), JSON.stringify(items));
+function saveNotificationsForUser(userId: number, items: Notification[]) {
+  localStorage.setItem(notifStorageKey(userId), JSON.stringify(items));
+  localStorage.setItem(notifVersionKey(userId), CURRENT_NOTIF_VERSION);
 }
-function loadStudentNotifiedKeys(userId: number): Set<string> {
+function loadNotifiedKeysForUser(userId: number): Set<string> {
   try {
-    const raw = localStorage.getItem(studentNotifiedKeysKey(userId));
+    const raw = localStorage.getItem(notifiedKeysStorageKey(userId));
     const arr = raw ? JSON.parse(raw) : [];
     return new Set(arr);
   } catch {
     return new Set();
   }
 }
-function saveStudentNotifiedKeys(userId: number, keys: Set<string>) {
-  localStorage.setItem(studentNotifiedKeysKey(userId), JSON.stringify(Array.from(keys)));
+function saveNotifiedKeysForUser(userId: number, keys: Set<string>) {
+  localStorage.setItem(notifiedKeysStorageKey(userId), JSON.stringify(Array.from(keys)));
 }
 
-// Merge function to combine existing and incoming notifications, preserving read status
-      function mergeNotifications(existing: Notification[], incoming: Notification[]): Notification[] {
-      const existingMap = new Map(existing.map(n => [n.id, n]));
-      incoming.forEach(n => {
-      const existingN = existingMap.get(n.id);
-      if (existingN) {
-      existingMap.set(n.id, { ...n, read: existingN.read || n.read });
+// FIX: Merge estable por id, preservando "read:true"
+function mergeNotificationsById(existing: Notification[], incoming: Notification[]) {
+  const map = new Map(existing.map(n => [n.id, n]));
+  for (const n of incoming) {
+    const prev = map.get(n.id);
+    if (prev) {
+      // Preserve read status and other existing properties, but update message/date if needed
+      map.set(n.id, { ...n, read: prev.read });
     } else {
-      existingMap.set(n.id, n);
+      map.set(n.id, n);
     }
-  });
-  return Array.from(existingMap.values());}
+  }
+  return Array.from(map.values())
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
 
 /* ===========================
    Componente principal
@@ -317,6 +343,10 @@ export default function StudentDashboard() {
   const [userNotifications, setUserNotifications] = useState<Notification[]>([]);
   const [notifiedKeys, setNotifiedKeys] = useState<Set<string>>(new Set());
   const [prevAppointments, setPrevAppointments] = useState<Appointment[]>([]);
+  // FIX: Control de orden de carga
+  const storageReadyRef = useRef(false);
+  const appointmentsLoadedRef = useRef(false);
+  const currentAppointmentsRef = useRef<Appointment[]>([]);
 
   // estados de perfil
   const [user, setUser] = useState<any | null>(null);
@@ -384,10 +414,38 @@ export default function StudentDashboard() {
   /* ===============================================
      NOTIFICACIONES — Cargar cache por usuario
   =============================================== */
+  // FIX: Carga inicial desde localStorage una única vez CUANDO ya hay userId
   useEffect(() => {
-    if (!userId) return;
-    setUserNotifications(loadStudentNotifications(userId));
-    setNotifiedKeys(loadStudentNotifiedKeys(userId));
+    if (!userId || storageReadyRef.current) return;
+    try {
+      const rawNotifs = localStorage.getItem(notifStorageKey(userId));
+      const rawKeys = localStorage.getItem(notifiedKeysStorageKey(userId));
+      const rawVer  = localStorage.getItem(notifVersionKey(userId));
+
+      let loadedNotifs: Notification[] = [];
+      let loadedKeys: string[] = [];
+
+      if (rawNotifs) loadedNotifs = JSON.parse(rawNotifs);
+      if (rawKeys) loadedKeys = JSON.parse(rawKeys);
+
+    // FIX: Migración simple por versión (si cambiaste formato de date/ids)
+    if (rawVer !== CURRENT_NOTIF_VERSION) {
+      // Normaliza: garantiza que cada notif tenga date en ISO
+      loadedNotifs = loadedNotifs.map(n => ({
+        ...n,
+        date: new Date(n.date).toISOString(), // asegura ISO
+      }));
+      localStorage.setItem(notifVersionKey(userId), CURRENT_NOTIF_VERSION);
+    }
+
+      setUserNotifications(loadedNotifs);
+      setNotifiedKeys(new Set(loadedKeys));
+    } catch {
+      setUserNotifications([]);
+      setNotifiedKeys(new Set());
+    } finally {
+      storageReadyRef.current = true; // Ya podemos generar sin pisar "read"
+    }
   }, [userId]);
 
   /* ==============================================================
@@ -395,7 +453,8 @@ export default function StudentDashboard() {
   ============================================================== */
   useEffect(() => {
     if (!userId) return;
-    (async () => {
+
+    const fetchAppointments = async () => {
       try {
         const res = await fetch(`/api/citas?estudiante_id=${userId}`, { cache: "no-store" });
         if (!res.ok) {
@@ -453,11 +512,20 @@ export default function StudentDashboard() {
         if (prevAppointments.length === 0) {
           setPrevAppointments(mapped);
         }
+        // Update current appointments ref
+        currentAppointmentsRef.current = mapped;
+        appointmentsLoadedRef.current = true;
+        // FIX: Disparar generación
         generateNotifications(mapped);
       } catch (e) {
         console.error("Error fetching student appointments:", e);
       }
-    })();
+    };
+
+    fetchAppointments();
+    const interval = setInterval(fetchAppointments, 60000); // Poll every 60 seconds
+
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
@@ -466,7 +534,8 @@ export default function StudentDashboard() {
   ====================================================== */
   const generateNotifications = useCallback(
     (currentAppointments: Appointment[]) => {
-      if (!userId) return;
+      // FIX: Salida temprana si storage no está listo o citas no cargadas
+      if (!userId || !storageReadyRef.current || !appointmentsLoadedRef.current) return;
 
       const now = new Date();
       const THIRTY_SIX_HOURS = 36 * 60 * 60 * 1000;
@@ -476,10 +545,16 @@ export default function StudentDashboard() {
 
       const prevMap = new Map(prevAppointments.map((apt) => [apt.id, apt]));
 
-      const pushUnique = (n: Notification, key: string) => {
-        if (keys.has(key)) return;
-        nextNotifications = [n, ...nextNotifications].slice(0, 100);
+      // FIX: pushUnique que respeta keys e IDs deterministas
+      const pushUnique = (arrRef: Notification[], n: Notification, key: string) => {
+        if (keys.has(key)) return arrRef;
+        if (arrRef.some(x => x.id === n.id)) {
+          keys.add(key);
+          return arrRef; // ya existe con mismo id → no duplicar ni resetear read
+        }
+        const next = [n, ...arrRef].slice(0, 100);
         keys.add(key);
+        return next;
       };
 
       const removeRemindersFor = (appointmentId: string) => {
@@ -499,36 +574,33 @@ export default function StudentDashboard() {
         const prev = prevMap.get(apt.id);
         const startDT = new Date(`${apt.date}T${apt.time}`);
 
-        // 1) Nueva cita -> solo si es futura o muy reciente (≤24h)
-        if (!prev) {
-          const key = `created:${apt.id}`;
-          const hoursAgo = now.getTime() - startDT.getTime();
-         if (hoursAgo <= 24 * 60 * 60 * 1000) {
-           pushUnique(
-              {
-                id: `appointment_created-${apt.id}-${Date.now()}`,
-                type: "appointment_created",
-                title: "Nueva cita agendada",
-                message: `${apt.subject} con ${apt.monitor.name} el ${new Date(apt.date).toLocaleDateString(
-                  "es-ES"
-                )} a las ${formatTime12Hour(apt.time)}`,
-                date: new Date().toISOString(),
-                read: false,
-                appointmentId: apt.id,
-              },
-              `created:${apt.id}`
-            );
-          }
-        }
+      // 1) Cita agendada
+      if (!prev) {
+        const key = `created:${apt.id}`;
+        nextNotifications = pushUnique(
+          nextNotifications,
+          {
+            id: `appointment_created-${apt.id}`,
+            type: "appointment_created",
+            title: "Cita agendada",
+            message: `Tienes una monitoría de ${apt.subject} con ${apt.monitor.name} el ${new Date(apt.date).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
+            date: new Date().toISOString(),
+            read: false,
+            appointmentId: apt.id,
+          },
+          key
+        );
+      }
 
         // 2) Cambios de estado
         if (prev && prev.status !== apt.status) {
           if (apt.status === "cancelada") {
             removeRemindersFor(apt.id);
 
-            pushUnique(
+            nextNotifications = pushUnique(
+              nextNotifications,
               {
-                id: `appointment_cancelled-${apt.id}-${Date.now()}`,
+                id: `appointment_cancelled-${apt.id}`,
                 type: "appointment_cancelled",
                 title: "Cita cancelada",
                 message: `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido cancelada`,
@@ -539,9 +611,10 @@ export default function StudentDashboard() {
               `status:${apt.id}:cancelada`
             );
           } else if (apt.status === "confirmada") {
-            pushUnique(
+            nextNotifications = pushUnique(
+              nextNotifications,
               {
-                id: `appointment_confirmed-${apt.id}-${Date.now()}`,
+                id: `appointment_confirmed-${apt.id}`,
                 type: "appointment_confirmed",
                 title: "Cita confirmada",
                 message: `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido confirmada`,
@@ -552,9 +625,10 @@ export default function StudentDashboard() {
               `status:${apt.id}:confirmada`
             );
           } else if (apt.status === "completada") {
-            pushUnique(
+            nextNotifications = pushUnique(
+              nextNotifications,
               {
-                id: `appointment_completed-${apt.id}-${Date.now()}`,
+                id: `appointment_completed-${apt.id}`,
                 type: "appointment_completed",
                 title: "Cita completada",
                 message: `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido completada`,
@@ -572,9 +646,10 @@ export default function StudentDashboard() {
                   const msUntilStart = startDT.getTime() - now.getTime();
           if (msUntilStart > 0 && msUntilStart <= THIRTY_SIX_HOURS) {
             const key = `reminder:${apt.id}:${startDT.toDateString()}`;
-            pushUnique(
+            nextNotifications = pushUnique(
+              nextNotifications,
               {
-                id: `appointment_reminder-${apt.id}-${Date.now()}`,
+                id: `appointment_reminder-${apt.id}`,
                 type: "appointment_reminder",
                 title: "Recordatorio de cita",
                 message: `Tienes una monitoría de ${apt.subject} con ${apt.monitor.name} el ${new Date(
@@ -596,7 +671,8 @@ export default function StudentDashboard() {
       // 4) “Cita programada” (anti-duplicada para todas las activas)
         if (apt.status !== "cancelada" && apt.status !== "completada") {
           const key = `scheduled:${apt.id}`;
-          pushUnique(
+          nextNotifications = pushUnique(
+            nextNotifications,
             {
               id: `appointment_scheduled-${apt.id}`,
               type: "appointment_created",
@@ -604,7 +680,7 @@ export default function StudentDashboard() {
               message: `Tienes una monitoría de ${apt.subject} con ${apt.monitor.name} el ${new Date(
                 apt.date
               ).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
-             date: new Date().toISOString(),
+             date: new Date(`${apt.date}T${apt.time}`).toISOString(),
               read: false,
               appointmentId: apt.id,
             },
@@ -612,16 +688,17 @@ export default function StudentDashboard() {
           );
         }
       }
-      // Persistir cambios y estado previo
-      setUserNotifications(nextNotifications);
-      if (userId) saveStudentNotifications(userId, nextNotifications);
+      // FIX: Antes de guardar:
+      const merged = mergeNotificationsById(userNotifications, nextNotifications);
+      setUserNotifications(merged);
+      if (userId) saveNotificationsForUser(userId, merged);
 
       setNotifiedKeys(keys);
-      if (userId) saveStudentNotifiedKeys(userId, keys);
+      if (userId) saveNotifiedKeysForUser(userId, keys);
 
       setPrevAppointments(currentAppointments);
     },
-    [userId, userNotifications, notifiedKeys, prevAppointments]
+    [userId, userNotifications, notifiedKeys, prevAppointments, appointmentsLoadedRef.current]
   );
 
   /* ===========================
@@ -799,7 +876,7 @@ export default function StudentDashboard() {
 
         // Cargar + purgar notificaciones existentes
         if (userId) {
-          const cached = loadStudentNotifications(userId);
+          const cached = loadNotificationsForUser(userId);
           const purged = cached.filter((n) => {
             if (n.type !== "appointment_reminder") return true;
             const reminderDate = new Date(n.date);
@@ -808,9 +885,9 @@ export default function StudentDashboard() {
             return reminderDate > now && reminderDate <= futureLimit;
           });
           setUserNotifications(purged);
-          saveStudentNotifications(userId, purged);
+          saveNotificationsForUser(userId, purged);
 
-          const keys = loadStudentNotifiedKeys(userId);
+          const keys = loadNotifiedKeysForUser(userId);
           setNotifiedKeys(keys);
         }
       } catch (error) {
@@ -960,6 +1037,9 @@ export default function StudentDashboard() {
 
           setUpcomingAppointments(upcoming);
           setHistoryAppointments(history);
+
+          currentAppointmentsRef.current = appointments;
+          generateNotifications(appointments);
         }
       } else {
         alert(`Error al agendar la cita: ${responseData.msg || "Error desconocido"}`);
@@ -1030,7 +1110,7 @@ export default function StudentDashboard() {
           setUserNotifications((prev) => {
             const keySet = new Set(notifiedKeys);
             const notif: Notification = {
-              id: `appointment_cancelled-${appointment.id}-${Date.now()}`,
+              id: `appointment_cancelled-${appointment.id}`,
               type: "appointment_cancelled",
               title: "Cita cancelada",
               message: `Tu cita de ${appointment.subject} ha sido cancelada`,
@@ -1046,8 +1126,8 @@ export default function StudentDashboard() {
             });
             setNotifiedKeys(cleaned);
             if (userId) {
-              saveStudentNotifications(userId, newList);
-              saveStudentNotifiedKeys(userId, cleaned);
+              saveNotificationsForUser(userId, newList);
+              saveNotifiedKeysForUser(userId, cleaned);
             }
             return newList;
           });
@@ -1161,7 +1241,7 @@ export default function StudentDashboard() {
             const key = `reminder:${updatedAppointment.id}:${startDT.toDateString()}`;
             if (!keys.has(key)) {
               const n: Notification = {
-                id: `appointment_reminder-${updatedAppointment.id}-${Date.now()}`,
+                id: `appointment_reminder-${updatedAppointment.id}`,
                 type: "appointment_reminder",
                 title: "Recordatorio de cita",
                 message: `Tienes una monitoría de ${updatedAppointment.subject} con ${updatedAppointment.monitor.name} el ${new Date(
@@ -1175,8 +1255,8 @@ export default function StudentDashboard() {
               keys.add(key);
               setNotifiedKeys(keys);
               if (userId) {
-                saveStudentNotifications(userId, list);
-                saveStudentNotifiedKeys(userId, keys);
+                saveNotificationsForUser(userId, list);
+                saveNotifiedKeysForUser(userId, keys);
               }
               return list;
             }
@@ -2147,7 +2227,7 @@ export default function StudentDashboard() {
                           if (!userId) return;
                           setUserNotifications((prev) => {
                             const updated = prev.map((n) => ({ ...n, read: true }));
-                            saveStudentNotifications(userId, updated);
+                            saveNotificationsForUser(userId, updated);
                             return updated;
                           });
                         }}
@@ -2220,7 +2300,7 @@ export default function StudentDashboard() {
                                       if (!userId) return;
                                       setUserNotifications((prev) => {
                                         const updated = prev.map((n) => (n.id === notification.id ? { ...n, read: true } : n));
-                                        saveStudentNotifications(userId, updated);
+                                        saveNotificationsForUser(userId, updated);
                                         return updated;
                                       });
                                     }}
