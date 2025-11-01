@@ -199,6 +199,7 @@ interface Notification {
   title: string;
   message: string;
   date: string; // ISO
+  timestamp: number; // for precise ordering
   read: boolean;
   appointmentId?: string;
   actionUrl?: string;
@@ -218,20 +219,69 @@ const toLocalDate = (fecha: string, hora: string) => new Date(`${fecha}T${hora}`
 
 const API_BASE = "/api";
 
+// FIX: Mapper único para normalizar citas del API
+function mapApiCitaToAppointment(cita: any): Appointment {
+  const start = cita.hora_inicio?.slice(0,5) ?? "00:00";
+  const end = cita.hora_fin?.slice(0,5) ?? start;
+  return {
+    id: String(cita.id),
+    subject: cita.materia?.nombre ?? cita.materia_nombre ?? "Materia",
+    subjectCode: cita.materia?.codigo ?? cita.materia_codigo ?? "",
+    monitor: {
+      name: cita.monitor?.nombre_completo ?? cita.monitor_nombre ?? "Monitor",
+      email: cita.monitor?.correo ?? cita.monitor_email ?? ""
+    },
+    date: cita.fecha_cita,
+    time: start,
+    endTime: end,
+    location: cita.ubicacion ?? "",
+    status: cita.estado,
+    details: cita.detalles ?? "",
+    duration: (() => {
+      const [sh, sm] = start.split(":").map(Number);
+      const [eh, em] = end.split(":").map(Number);
+      return (eh * 60 + em) - (sh * 60 + sm);
+    })(),
+    createdAt: cita.created_at ?? new Date().toISOString(),
+    disponibilidad_id: cita.disponibilidad_id ? String(cita.disponibilidad_id) : undefined
+  };
+}
+
 /* =========================================================
    NOTIFICACIONES (CLON MONITOR) — Helpers de storage
 ========================================================= */
 // FIX: Claves únicas por estudiante
-const notifStorageKey = (uid: number) => `student_notifications_${uid}`;
-const notifiedKeysStorageKey = (uid: number) => `student_notified_keys_${uid}`;
-const notifVersionKey = (uid: number) => `student_notifications_version_${uid}`; // para migraciones
+const notifStorageKey = (uid: number) => `estudiante_notifications_${uid}`;
+const notifiedKeysStorageKey = (uid: number) => `estudiante_notified_keys_${uid}`;
+const notifVersionKey = (uid: number) => `estudiante_notifications_version_${uid}`; // para migraciones
 const CURRENT_NOTIF_VERSION = 'v2';
 
 function loadNotificationsForUser(userId: number): Notification[] {
   try {
-    const rawNotifs = localStorage.getItem(notifStorageKey(userId));
-    const rawKeys = localStorage.getItem(notifiedKeysStorageKey(userId));
-    const rawVer  = localStorage.getItem(notifVersionKey(userId));
+    let rawNotifs = localStorage.getItem(notifStorageKey(userId));
+    let rawKeys = localStorage.getItem(notifiedKeysStorageKey(userId));
+    let rawVer  = localStorage.getItem(notifVersionKey(userId));
+
+    // Migration: if no data under new keys, try old keys
+    if (!rawNotifs) {
+      const oldKey = `student_notifications_${userId}`;
+      rawNotifs = localStorage.getItem(oldKey);
+      if (rawNotifs) {
+        // Migrate to new key
+        localStorage.setItem(notifStorageKey(userId), rawNotifs);
+        localStorage.removeItem(oldKey);
+        console.log("Migrated notifications from old key");
+      }
+    }
+    if (!rawKeys) {
+      const oldKeysKey = `student_notified_keys_${userId}`;
+      rawKeys = localStorage.getItem(oldKeysKey);
+      if (rawKeys) {
+        localStorage.setItem(notifiedKeysStorageKey(userId), rawKeys);
+        localStorage.removeItem(oldKeysKey);
+        console.log("Migrated notified keys from old key");
+      }
+    }
 
     let loadedNotifs: Notification[] = [];
     let loadedKeys: string[] = [];
@@ -241,10 +291,11 @@ function loadNotificationsForUser(userId: number): Notification[] {
 
     // FIX: Migración simple por versión (si cambiaste formato de date/ids)
     if (rawVer !== CURRENT_NOTIF_VERSION) {
-      // Normaliza: garantiza que cada notif tenga date en ISO
+      // Normaliza: garantiza que cada notif tenga date en ISO y timestamp
       loadedNotifs = loadedNotifs.map(n => ({
         ...n,
         date: new Date(n.date).toISOString(), // asegura ISO
+        timestamp: n.timestamp || new Date(n.date).getTime(), // asegura timestamp
       }));
       localStorage.setItem(notifVersionKey(userId), CURRENT_NOTIF_VERSION);
     }
@@ -260,7 +311,19 @@ function saveNotificationsForUser(userId: number, items: Notification[]) {
 }
 function loadNotifiedKeysForUser(userId: number): Set<string> {
   try {
-    const raw = localStorage.getItem(notifiedKeysStorageKey(userId));
+    let raw = localStorage.getItem(notifiedKeysStorageKey(userId));
+
+    // Migration: if no data under new key, try old key
+    if (!raw) {
+      const oldKey = `student_notified_keys_${userId}`;
+      raw = localStorage.getItem(oldKey);
+      if (raw) {
+        localStorage.setItem(notifiedKeysStorageKey(userId), raw);
+        localStorage.removeItem(oldKey);
+        console.log("Migrated notified keys from old key");
+      }
+    }
+
     const arr = raw ? JSON.parse(raw) : [];
     return new Set(arr);
   } catch {
@@ -284,7 +347,7 @@ function mergeNotificationsById(existing: Notification[], incoming: Notification
     }
   }
   return Array.from(map.values())
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    .sort((a, b) => (b.timestamp || new Date(b.date).getTime()) - (a.timestamp || new Date(a.date).getTime()));
 }
 
 /* ===========================
@@ -347,6 +410,8 @@ export default function StudentDashboard() {
   const storageReadyRef = useRef(false);
   const appointmentsLoadedRef = useRef(false);
   const currentAppointmentsRef = useRef<Appointment[]>([]);
+  const loadedNotifsRef = useRef<Notification[]>([]);
+  const loadedKeysRef = useRef<Set<string>>(new Set());
 
   // estados de perfil
   const [user, setUser] = useState<any | null>(null);
@@ -417,36 +482,200 @@ export default function StudentDashboard() {
   // FIX: Carga inicial desde localStorage una única vez CUANDO ya hay userId
   useEffect(() => {
     if (!userId || storageReadyRef.current) return;
-    try {
-      const rawNotifs = localStorage.getItem(notifStorageKey(userId));
-      const rawKeys = localStorage.getItem(notifiedKeysStorageKey(userId));
-      const rawVer  = localStorage.getItem(notifVersionKey(userId));
+    const loadedNotifs = loadNotificationsForUser(userId);
+    const loadedKeys = loadNotifiedKeysForUser(userId);
 
-      let loadedNotifs: Notification[] = [];
-      let loadedKeys: string[] = [];
-
-      if (rawNotifs) loadedNotifs = JSON.parse(rawNotifs);
-      if (rawKeys) loadedKeys = JSON.parse(rawKeys);
-
-    // FIX: Migración simple por versión (si cambiaste formato de date/ids)
-    if (rawVer !== CURRENT_NOTIF_VERSION) {
-      // Normaliza: garantiza que cada notif tenga date en ISO
-      loadedNotifs = loadedNotifs.map(n => ({
-        ...n,
-        date: new Date(n.date).toISOString(), // asegura ISO
-      }));
-      localStorage.setItem(notifVersionKey(userId), CURRENT_NOTIF_VERSION);
-    }
-
-      setUserNotifications(loadedNotifs);
-      setNotifiedKeys(new Set(loadedKeys));
-    } catch {
-      setUserNotifications([]);
-      setNotifiedKeys(new Set());
-    } finally {
-      storageReadyRef.current = true; // Ya podemos generar sin pisar "read"
+    setUserNotifications(loadedNotifs);
+    setNotifiedKeys(loadedKeys);
+    loadedNotifsRef.current = loadedNotifs;
+    loadedKeysRef.current = loadedKeys;
+    storageReadyRef.current = true; // Ya podemos generar sin pisar "read"
+    console.log("Notificaciones cargadas desde localStorage:", loadedNotifs.length);
+    // FIX: Generar notificaciones si las citas ya están cargadas
+    if (appointmentsLoadedRef.current) {
+      generateNotifications(currentAppointmentsRef.current);
     }
   }, [userId]);
+
+  // FIX: Generación completa de notificaciones del estudiante
+  const generateNotifications = useCallback(
+    (currentAppointments: Appointment[]) => {
+      if (!userId) return;
+
+      console.log("Generando notificaciones para citas:", currentAppointments.length);
+      let nextNotifications = [...userNotifications];
+      const keys = new Set(notifiedKeys);
+      const prevMap = new Map(prevAppointments.map(a => [a.id, a]));
+
+      const now = Date.now();
+      const THIRTY_SIX_HOURS = 36 * 60 * 60 * 1000;
+
+      const pushUnique = (n: Notification, key: string) => {
+        if (keys.has(key)) return nextNotifications;
+        if (!nextNotifications.some(x => x.id === n.id)) {
+          nextNotifications = [n, ...nextNotifications].slice(0, 100);
+          keys.add(key);
+        }
+        return nextNotifications;
+      };
+
+      const removeRemindersFor = (appointmentId: string) => {
+        nextNotifications = nextNotifications.filter(n => !(n.type === "appointment_reminder" && n.appointmentId === appointmentId));
+        const cleaned = new Set<string>();
+        keys.forEach(k => {
+          if (!k.startsWith(`reminder:${appointmentId}:`)) cleaned.add(k);
+        });
+        keys.clear();
+        cleaned.forEach(k => keys.add(k));
+      };
+
+      for (const apt of currentAppointments) {
+        console.log("Procesando cita:", apt.id, apt.status, apt.date, apt.time);
+        const prev = prevMap.get(apt.id);
+        const startTime = new Date(`${apt.date}T${apt.time}`).getTime();
+
+        // ✅ Nueva cita (siempre generar si es nueva)
+        if (!prev) {
+          const now = Date.now();
+          nextNotifications = pushUnique({
+            id: `appointment_created-${apt.id}`,
+            type: "appointment_created",
+            title: "Cita agendada",
+            message: `Agendaste ${apt.subject} con ${apt.monitor.name} el ${new Date(apt.date).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
+            date: new Date(now).toISOString(),
+            timestamp: now,
+            read: false,
+            appointmentId: apt.id
+          }, `created:${apt.id}`);
+          console.log("Notificación creada para nueva cita");
+        }
+
+        // ✅ Notificaciones por estado actual (para carga inicial)
+        if (apt.status === "confirmada") {
+          const now = Date.now();
+          nextNotifications = pushUnique({
+            id: `appointment_confirmed-${apt.id}`,
+            type: "appointment_confirmed",
+            title: "Cita confirmada",
+            message: `Tu cita de ${apt.subject} fue confirmada por el monitor.`,
+            date: new Date(now).toISOString(),
+            timestamp: now,
+            read: false,
+            appointmentId: apt.id
+          }, `status:${apt.id}:confirmada`);
+          console.log("Notificación confirmada (inicial)");
+        } else if (apt.status === "cancelada") {
+          removeRemindersFor(apt.id);
+          const now = Date.now();
+          nextNotifications = pushUnique({
+            id: `appointment_cancelled-${apt.id}`,
+            type: "appointment_cancelled",
+            title: "Cita cancelada",
+            message: `Tu cita de ${apt.subject} fue cancelada.`,
+            date: new Date(now).toISOString(),
+            timestamp: now,
+            read: false,
+            appointmentId: apt.id
+          }, `status:${apt.id}:cancelada`);
+          console.log("Notificación cancelada (inicial)");
+        } else if (apt.status === "completada") {
+          const now = Date.now();
+          nextNotifications = pushUnique({
+            id: `appointment_completed-${apt.id}`,
+            type: "appointment_completed",
+            title: "Cita completada",
+            message: `Finalizaste la monitoría de ${apt.subject}.`,
+            date: new Date(now).toISOString(),
+            timestamp: now,
+            read: false,
+            appointmentId: apt.id
+          }, `status:${apt.id}:completada`);
+          console.log("Notificación completada (inicial)");
+        }
+
+        // ✅ Cambios de estado (solo si cambió)
+        if (prev && prev.status !== apt.status) {
+          console.log("Cambio de estado:", prev.status, "->", apt.status);
+          if (apt.status === "cancelada") {
+            removeRemindersFor(apt.id);
+            const now = Date.now();
+            nextNotifications = pushUnique({
+              id: `appointment_cancelled-${apt.id}`,
+              type: "appointment_cancelled",
+              title: "Cita cancelada",
+              message: `Tu cita de ${apt.subject} fue cancelada.`,
+              date: new Date(now).toISOString(),
+              timestamp: now,
+              read: false,
+              appointmentId: apt.id
+            }, `status:${apt.id}:cancelada`);
+            console.log("Notificación cancelada (cambio)");
+          } else if (apt.status === "confirmada") {
+            const now = Date.now();
+            nextNotifications = pushUnique({
+              id: `appointment_confirmed-${apt.id}`,
+              type: "appointment_confirmed",
+              title: "Cita confirmada",
+              message: `Tu cita de ${apt.subject} fue confirmada por el monitor.`,
+              date: new Date(now).toISOString(),
+              timestamp: now,
+              read: false,
+              appointmentId: apt.id
+            }, `status:${apt.id}:confirmada`);
+            console.log("Notificación confirmada (cambio)");
+          } else if (apt.status === "completada") {
+            const now = Date.now();
+            nextNotifications = pushUnique({
+              id: `appointment_completed-${apt.id}`,
+              type: "appointment_completed",
+              title: "Cita completada",
+              message: `Finalizaste la monitoría de ${apt.subject}.`,
+              date: new Date(now).toISOString(),
+              timestamp: now,
+              read: false,
+              appointmentId: apt.id
+            }, `status:${apt.id}:completada`);
+            console.log("Notificación completada (cambio)");
+          }
+        }
+
+        // ✅ Recordatorios dentro de 36h
+        if (apt.status !== "cancelada" && apt.status !== "completada") {
+          const msUntilStart = startTime - now;
+          console.log("Verificando recordatorio, msUntilStart:", msUntilStart, "THIRTY_SIX_HOURS:", THIRTY_SIX_HOURS);
+          if (msUntilStart > 0 && msUntilStart <= THIRTY_SIX_HOURS) {
+            const now = Date.now();
+            nextNotifications = pushUnique({
+              id: `appointment_reminder-${apt.id}`,
+              type: "appointment_reminder",
+              title: "Recordatorio de cita",
+              message: `Tienes ${apt.subject} con ${apt.monitor.name} el ${new Date(apt.date).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
+              date: new Date(now).toISOString(),
+              timestamp: now,
+              read: false,
+              appointmentId: apt.id
+            }, `reminder:${apt.id}:${new Date(apt.date).toDateString()}`);
+            console.log("Notificación recordatorio");
+          } else {
+            removeRemindersFor(apt.id);
+          }
+        }
+      }
+
+      console.log("nextNotifications antes de merge:", nextNotifications.length);
+      // Guardar cambios
+      const merged = mergeNotificationsById(loadedNotifsRef.current, nextNotifications);
+      setUserNotifications(merged);
+      setNotifiedKeys(keys);
+      localStorage.setItem(notifStorageKey(userId), JSON.stringify(merged));
+      localStorage.setItem(notifiedKeysStorageKey(userId), JSON.stringify(Array.from(keys)));
+      loadedNotifsRef.current = merged;
+      loadedKeysRef.current = keys;
+      setPrevAppointments(currentAppointments);
+      console.log("Notificaciones guardadas:", merged.length);
+    },
+    [userId, userNotifications, notifiedKeys, prevAppointments]
+  );
 
   /* ==============================================================
      Traer citas del estudiante y generar notificaciones (CLON)
@@ -467,28 +696,7 @@ export default function StudentDashboard() {
         const list = Array.isArray(json?.data) ? json.data : [];
 
         // Ajusta estos campos si en tu API cambian nombres
-        const mapped: Appointment[] = list.map((cita: any) => ({
-          id: String(cita.id),
-          subject: cita?.materia?.nombre ?? "",
-          subjectCode: cita?.materia?.codigo ?? "",
-          monitor: {
-            name: cita?.monitor?.nombre_completo ?? "",
-            email: cita?.monitor?.correo ?? "",
-          },
-          date: cita?.fecha_cita,
-          time: (cita?.hora_inicio || "").slice(0, 5),
-          endTime: (cita?.hora_fin || "").slice(0, 5),
-          location: cita?.ubicacion || "",
-          status: cita?.estado,
-          details: cita?.detalles || "",
-          createdAt: cita?.created_at || "",
-          disponibilidad_id: cita?.disponibilidad_id ? String(cita.disponibilidad_id) : undefined,
-          duration: (() => {
-            const [sh, sm] = (cita?.hora_inicio || "00:00").split(":").map(Number);
-            const [eh, em] = (cita?.hora_fin || "00:00").split(":").map(Number);
-            return eh * 60 + em - (sh * 60 + sm);
-          })(),
-        }));
+        const mapped: Appointment[] = list.map(mapApiCitaToAppointment);
 
         // Separa próximas/historial
         const now = new Date();
@@ -515,8 +723,17 @@ export default function StudentDashboard() {
         // Update current appointments ref
         currentAppointmentsRef.current = mapped;
         appointmentsLoadedRef.current = true;
-        // FIX: Disparar generación
-        generateNotifications(mapped);
+        // FIX: Disparar generación after setting upcoming/history
+        setUpcomingAppointments(upcoming);
+        setHistoryAppointments(history);
+        // FIX: Generar notificaciones solo si storage está listo
+        if (storageReadyRef.current) {
+          generateNotifications(mapped);
+        }
+        // Update prev after generation
+        setPrevAppointments(mapped);
+        console.log("Notificaciones generadas:", userNotifications.length);
+        console.log("Citas procesadas:", mapped.length);
       } catch (e) {
         console.error("Error fetching student appointments:", e);
       }
@@ -528,178 +745,6 @@ export default function StudentDashboard() {
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
-
-  /* ======================================================
-     Generación de notificaciones (idéntica al monitor)
-  ====================================================== */
-  const generateNotifications = useCallback(
-    (currentAppointments: Appointment[]) => {
-      // FIX: Salida temprana si storage no está listo o citas no cargadas
-      if (!userId || !storageReadyRef.current || !appointmentsLoadedRef.current) return;
-
-      const now = new Date();
-      const THIRTY_SIX_HOURS = 36 * 60 * 60 * 1000;
-
-      let nextNotifications = [...userNotifications];
-      const keys = new Set(notifiedKeys);
-
-      const prevMap = new Map(prevAppointments.map((apt) => [apt.id, apt]));
-
-      // FIX: pushUnique que respeta keys e IDs deterministas
-      const pushUnique = (arrRef: Notification[], n: Notification, key: string) => {
-        if (keys.has(key)) return arrRef;
-        if (arrRef.some(x => x.id === n.id)) {
-          keys.add(key);
-          return arrRef; // ya existe con mismo id → no duplicar ni resetear read
-        }
-        const next = [n, ...arrRef].slice(0, 100);
-        keys.add(key);
-        return next;
-      };
-
-      const removeRemindersFor = (appointmentId: string) => {
-        nextNotifications = nextNotifications.filter(
-          (n) => !(n.type === "appointment_reminder" && n.appointmentId === appointmentId)
-        );
-        // limpiar llaves de recordatorio para esa cita        const cleaned = new Set<string>();
-        const cleaned = new Set<string>();
-        keys.forEach((k) => {
-          if (!k.startsWith(`reminder:${appointmentId}:`)) cleaned.add(k);
-        });
-        keys.clear();
-        cleaned.forEach((k) => keys.add(k));
-      };
-
-      for (const apt of currentAppointments) {
-        const prev = prevMap.get(apt.id);
-        const startDT = new Date(`${apt.date}T${apt.time}`);
-
-      // 1) Cita agendada
-      if (!prev) {
-        const key = `created:${apt.id}`;
-        nextNotifications = pushUnique(
-          nextNotifications,
-          {
-            id: `appointment_created-${apt.id}`,
-            type: "appointment_created",
-            title: "Cita agendada",
-            message: `Tienes una monitoría de ${apt.subject} con ${apt.monitor.name} el ${new Date(apt.date).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
-            date: new Date().toISOString(),
-            read: false,
-            appointmentId: apt.id,
-          },
-          key
-        );
-      }
-
-        // 2) Cambios de estado
-        if (prev && prev.status !== apt.status) {
-          if (apt.status === "cancelada") {
-            removeRemindersFor(apt.id);
-
-            nextNotifications = pushUnique(
-              nextNotifications,
-              {
-                id: `appointment_cancelled-${apt.id}`,
-                type: "appointment_cancelled",
-                title: "Cita cancelada",
-                message: `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido cancelada`,
-                date: new Date().toISOString(),
-                read: false,
-                appointmentId: apt.id,
-              },
-              `status:${apt.id}:cancelada`
-            );
-          } else if (apt.status === "confirmada") {
-            nextNotifications = pushUnique(
-              nextNotifications,
-              {
-                id: `appointment_confirmed-${apt.id}`,
-                type: "appointment_confirmed",
-                title: "Cita confirmada",
-                message: `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido confirmada`,
-                date: new Date().toISOString(),
-                read: false,
-                appointmentId: apt.id,
-              },
-              `status:${apt.id}:confirmada`
-            );
-          } else if (apt.status === "completada") {
-            nextNotifications = pushUnique(
-              nextNotifications,
-              {
-                id: `appointment_completed-${apt.id}`,
-                type: "appointment_completed",
-                title: "Cita completada",
-                message: `Tu cita de ${apt.subject} con ${apt.monitor.name} ha sido completada`,
-                date: new Date().toISOString(),
-                read: false,
-                appointmentId: apt.id,
-              },
-              `status:${apt.id}:completada`
-            );
-          }
-        }
-
-        // 3) Recordatorio (futuras, dentro de 36h, no cancelada/completada)
-                if (apt.status !== "cancelada" && apt.status !== "completada") {
-                  const msUntilStart = startDT.getTime() - now.getTime();
-          if (msUntilStart > 0 && msUntilStart <= THIRTY_SIX_HOURS) {
-            const key = `reminder:${apt.id}:${startDT.toDateString()}`;
-            nextNotifications = pushUnique(
-              nextNotifications,
-              {
-                id: `appointment_reminder-${apt.id}`,
-                type: "appointment_reminder",
-                title: "Recordatorio de cita",
-                message: `Tienes una monitoría de ${apt.subject} con ${apt.monitor.name} el ${new Date(
-                  apt.date
-                ).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
-                date: new Date().toISOString(),
-                read: false,
-                appointmentId: apt.id,
-              },
-              key
-            );
-          } else {
-            // fuera de ventana -> limpiar recordatorios de esa cita
-            removeRemindersFor(apt.id);
-          }
-        }
-      
-
-      // 4) “Cita programada” (anti-duplicada para todas las activas)
-        if (apt.status !== "cancelada" && apt.status !== "completada") {
-          const key = `scheduled:${apt.id}`;
-          nextNotifications = pushUnique(
-            nextNotifications,
-            {
-              id: `appointment_scheduled-${apt.id}`,
-              type: "appointment_created",
-              title: "Cita programada",
-              message: `Tienes una monitoría de ${apt.subject} con ${apt.monitor.name} el ${new Date(
-                apt.date
-              ).toLocaleDateString("es-ES")} a las ${formatTime12Hour(apt.time)}`,
-             date: new Date(`${apt.date}T${apt.time}`).toISOString(),
-              read: false,
-              appointmentId: apt.id,
-            },
-            key
-          );
-        }
-      }
-      // FIX: Antes de guardar:
-      const merged = mergeNotificationsById(userNotifications, nextNotifications);
-      setUserNotifications(merged);
-      if (userId) saveNotificationsForUser(userId, merged);
-
-      setNotifiedKeys(keys);
-      if (userId) saveNotifiedKeysForUser(userId, keys);
-
-      setPrevAppointments(currentAppointments);
-    },
-    [userId, userNotifications, notifiedKeys, prevAppointments, appointmentsLoadedRef.current]
-  );
 
   /* ===========================
      Debounced search materias
@@ -817,21 +862,7 @@ export default function StudentDashboard() {
           const appointmentsRes = await fetch(`${API_BASE}/citas?estudiante_id=${userId}`);
           if (appointmentsRes.ok) {
             const data = await appointmentsRes.json();
-            const appointments: Appointment[] = data.data.map((cita: any) => ({
-              id: cita.id.toString(),
-              subject: cita.materia.nombre,
-              subjectCode: cita.materia.codigo,
-              monitor: { name: cita.monitor.nombre_completo, email: cita.monitor.correo },
-              date: cita.fecha_cita,
-              time: cita.hora_inicio,
-              endTime: cita.hora_fin,
-              location: cita.ubicacion || "",
-              status: cita.estado,
-              duration: calculateDuration(cita.hora_inicio, cita.hora_fin),
-              disponibilidad_id: cita.disponibilidad_id?.toString(),
-              details: "",
-              createdAt: cita.created_at || "",
-            }));
+            const appointments: Appointment[] = data.data.map(mapApiCitaToAppointment);
             const now = new Date();
             const todayYMD = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const isPastAppointment = (apt: Appointment) => {
@@ -1003,6 +1034,7 @@ export default function StudentDashboard() {
       const responseData = await res.json();
 
       if (res.ok && responseData.ok) {
+        alert("Cita agendada exitosamente");
         resetBookingForm();
         setActiveTab("appointments");
         const appointmentsRes = await fetch(`${API_BASE}/citas?estudiante_id=${userId}`);
@@ -1106,31 +1138,7 @@ export default function StudentDashboard() {
           setUpcomingAppointments(upcoming);
           setHistoryAppointments(history);
 
-          // Notificación de cancelación + limpiar recordatorios
-          setUserNotifications((prev) => {
-            const keySet = new Set(notifiedKeys);
-            const notif: Notification = {
-              id: `appointment_cancelled-${appointment.id}`,
-              type: "appointment_cancelled",
-              title: "Cita cancelada",
-              message: `Tu cita de ${appointment.subject} ha sido cancelada`,
-              date: new Date().toISOString(),
-              read: false,
-              appointmentId: appointment.id,
-            };
-            const newList = [notif, ...prev].slice(0, 100).filter((n) => !(n.type === "appointment_reminder" && n.appointmentId === appointment.id));
-            // limpiar llaves reminder
-            const cleaned = new Set<string>();
-            keySet.forEach((k) => {
-              if (!k.startsWith(`reminder:${appointment.id}:`)) cleaned.add(k);
-            });
-            setNotifiedKeys(cleaned);
-            if (userId) {
-              saveNotificationsForUser(userId, newList);
-              saveNotifiedKeysForUser(userId, cleaned);
-            }
-            return newList;
-          });
+          generateNotifications(appointments);
         }
 
         alert("Cita cancelada exitosamente");
@@ -1232,37 +1240,7 @@ export default function StudentDashboard() {
         setUpcomingAppointments(upcoming);
         setHistoryAppointments(history);
 
-        // Recordatorio si nuevo horario cae en ≤36h
-        const startDT = new Date(`${updatedAppointment.date}T${updatedAppointment.time}`);
-        const msUntilStart = startDT.getTime() - new Date().getTime();
-        if (updatedAppointment.status !== "cancelada" && updatedAppointment.status !== "completada" && msUntilStart > 0 && msUntilStart <= 36 * 60 * 60 * 1000) {
-          setUserNotifications((prev) => {
-            const keys = new Set(notifiedKeys);
-            const key = `reminder:${updatedAppointment.id}:${startDT.toDateString()}`;
-            if (!keys.has(key)) {
-              const n: Notification = {
-                id: `appointment_reminder-${updatedAppointment.id}`,
-                type: "appointment_reminder",
-                title: "Recordatorio de cita",
-                message: `Tienes una monitoría de ${updatedAppointment.subject} con ${updatedAppointment.monitor.name} el ${new Date(
-                  updatedAppointment.date
-                ).toLocaleDateString("es-ES")} a las ${formatTime12Hour(updatedAppointment.time)}`,
-                date: new Date().toISOString(),
-                read: false,
-                appointmentId: updatedAppointment.id,
-              };
-              const list = [n, ...prev].slice(0, 100);
-              keys.add(key);
-              setNotifiedKeys(keys);
-              if (userId) {
-                saveNotificationsForUser(userId, list);
-                saveNotifiedKeysForUser(userId, keys);
-              }
-              return list;
-            }
-            return prev;
-          });
-        }
+        generateNotifications(pool);
 
         setShowModifyDialog(false);
         setSelectedAppointment(null);
@@ -2225,11 +2203,12 @@ export default function StudentDashboard() {
                         size="sm"
                         onClick={() => {
                           if (!userId) return;
-                          setUserNotifications((prev) => {
-                            const updated = prev.map((n) => ({ ...n, read: true }));
-                            saveNotificationsForUser(userId, updated);
-                            return updated;
-                          });
+                          const updated = userNotifications.map((n) => ({ ...n, read: true }));
+                          setUserNotifications(updated);
+                          loadedNotifsRef.current = updated;
+                          saveNotificationsForUser(userId, updated);
+                          localStorage.setItem(notifStorageKey(userId), JSON.stringify(updated));
+                          console.log("Marcando todas las notificaciones como leídas");
                         }}
                       >
                         <CheckCircle className="h-4 w-4 mr-2" />
@@ -2241,13 +2220,14 @@ export default function StudentDashboard() {
 
                 <div className="space-y-4">
                   {(() => {
+                    // FIX: Ordenar notificaciones por timestamp descendente antes de mostrarlas
                     const filtered = userNotifications
                       .filter((n) => {
                         if (notificationFilter === "all") return true;
                         if (notificationFilter === "unread") return !n.read;
                         return n.type === (notificationFilter as NotificationType);
                       })
-                      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                      .sort((a, b) => (b.timestamp || new Date(b.date).getTime()) - (a.timestamp || new Date(a.date).getTime()));
 
                     return filtered.length === 0 ? (
                       <Card>
@@ -2298,11 +2278,12 @@ export default function StudentDashboard() {
                                     variant="ghost"
                                     onClick={() => {
                                       if (!userId) return;
-                                      setUserNotifications((prev) => {
-                                        const updated = prev.map((n) => (n.id === notification.id ? { ...n, read: true } : n));
-                                        saveNotificationsForUser(userId, updated);
-                                        return updated;
-                                      });
+                                      const updated = userNotifications.map((n) => (n.id === notification.id ? { ...n, read: true } : n));
+                                      setUserNotifications(updated);
+                                      loadedNotifsRef.current = updated;
+                                      saveNotificationsForUser(userId, updated);
+                                      localStorage.setItem(notifStorageKey(userId), JSON.stringify(updated));
+                                      console.log("Marcando notificación como leída:", notification.id);
                                     }}
                                   >
                                     <Eye className="h-4 w-4 mr-1" />
