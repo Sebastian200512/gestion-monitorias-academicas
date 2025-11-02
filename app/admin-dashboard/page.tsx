@@ -220,6 +220,8 @@ export default function AdminDashboardComplete() {
   const [historicoAllDates, setHistoricoAllDates] = useState(true)
   const [historicoStartDate, setHistoricoStartDate] = useState("")
   const [historicoEndDate, setHistoricoEndDate] = useState("")
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
   const [showEditAppointmentDialog, setShowEditAppointmentDialog] = useState(false)
   const [editingAppointment, setEditingAppointment] = useState<any>(null)
   const [editAppointmentDate, setEditAppointmentDate] = useState("")
@@ -487,7 +489,7 @@ export default function AdminDashboardComplete() {
 
   /** ======== FILTRADO DE MONITORES ======== */
   const filteredMonitors = useMemo(() => {
-    let filtered = monitors
+    let filtered = monitorsWithSessions
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       filtered = filtered.filter(m =>
@@ -497,7 +499,7 @@ export default function AdminDashboardComplete() {
       )
     }
     return filtered
-  }, [monitors, searchTerm])
+  }, [monitorsWithSessions, searchTerm])
 
   /** ======== PAGINACIÓN DE MONITORES ======== */
   const paginatedMonitors = useMemo(() => {
@@ -635,10 +637,6 @@ export default function AdminDashboardComplete() {
                       <div>
                         <p className="text-sm text-gray-600">Total Citas</p>
                         <p className="text-3xl font-bold text-gray-900">{systemStats.totalAppointments}</p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <ArrowUpRight className="h-3 w-3 text-green-600" />
-                          <p className="text-xs text-green-600">+0% vs período anterior</p>
-                        </div>
                       </div>
                       <div className="p-3 bg-red-100 rounded-full"><Calendar className="h-6 w-6 text-red-800" /></div>
                     </div>
@@ -651,10 +649,6 @@ export default function AdminDashboardComplete() {
                         <p className="text-3xl font-bold text-gray-900">
                           {systemStats.totalAppointments ? Math.round((systemStats.completedAppointments / systemStats.totalAppointments) * 100) : 0}%
                         </p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <ArrowUpRight className="h-3 w-3 text-green-600" />
-                          <p className="text-xs text-green-600">+0% vs período anterior</p>
-                        </div>
                       </div>
                       <div className="p-3 bg-green-100 rounded-full"><CheckCircle className="h-6 w-6 text-green-600" /></div>
                     </div>
@@ -667,10 +661,6 @@ export default function AdminDashboardComplete() {
                         <p className="text-3xl font-bold text-gray-900">
                           {systemStats.totalAppointments ? Math.round((systemStats.cancelledAppointments / systemStats.totalAppointments) * 100) : 0}%
                         </p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <ArrowDownRight className="h-3 w-3 text-red-600" />
-                          <p className="text-xs text-red-600">0% vs período anterior</p>
-                        </div>
                       </div>
                       <div className="p-3 bg-red-100 rounded-full"><XCircle className="h-6 w-6 text-red-600" /></div>
                     </div>
@@ -681,10 +671,6 @@ export default function AdminDashboardComplete() {
                       <div>
                         <p className="text-sm text-gray-600">Total Monitores</p>
                         <p className="text-3xl font-bold text-gray-900">{systemStats.totalMonitors}</p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <ArrowUpRight className="h-3 w-3 text-green-600" />
-                          <p className="text-xs text-green-600">+0% vs período anterior</p>
-                        </div>
                       </div>
                       <div className="p-3 bg-red-100 rounded-full"><UserCheck className="h-6 w-6 text-red-800" /></div>
                     </div>
@@ -1319,172 +1305,61 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            {/* ===== Reportes (plantilla, sin números ficticios) ===== */}
-            {activeTab === "reports" && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Reportes</h2>
-                  </div>
-                </div>
+            {/* Reportes: solo Histórico de Citas */}
+ {activeTab === "reports" && (
+  <div className="space-y-6">
+    <div className="flex items-center justify-between">
+      <h2 className="text-2xl font-bold text-gray-900">Reportes</h2>
+    </div>
 
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarDays className="h-5 w-5" />
+          Histórico de Citas
+        </CardTitle>
+        <CardDescription>
+          Descarga el histórico de citas con más detalle (puedes filtrar por fecha).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="startDate">Desde</Label>
+          <Input
+            id="startDate"
+            type="date"
+            value={reportStartDate}
+            onChange={(e) => setReportStartDate(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="endDate">Hasta</Label>
+          <Input
+            id="endDate"
+            type="date"
+            value={reportEndDate}
+            onChange={(e) => setReportEndDate(e.target.value)}
+          />
+        </div>
+        <div className="flex items-end">
+          <Button
+            className="w-full bg-red-800 hover:bg-red-900"
+            onClick={() => {
+              const qs = new URLSearchParams()
+              if (reportStartDate) qs.set("start_date", reportStartDate)
+              if (reportEndDate) qs.set("end_date", reportEndDate)
+              window.open(`/api/reportes/historico-citas?${qs.toString()}`, "_blank")
+            }}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Descargar Excel
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+)}
 
-                {/* Reportes descargables */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Users className="h-5 w-5" />
-                        Estudiantes Activos
-                      </CardTitle>
-                      <CardDescription>Listado general de estudiantes activos</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => window.open('/api/reportes/estudiantes-activos', '_blank')}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <TrendingUp className="h-5 w-5" />
-                        Estudiantes con Más Citas
-                      </CardTitle>
-                      <CardDescription>Estudiantes con más citas agendadas</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => window.open('/api/reportes/estudiantes-mas-citas', '_blank')}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <XCircle className="h-5 w-5" />
-                        Estudiantes que Más Cancelan
-                      </CardTitle>
-                      <CardDescription>Estudiantes con más citas canceladas</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => window.open('/api/reportes/estudiantes-cancelaciones', '_blank')}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <UserCheck className="h-5 w-5" />
-                        Citas por Monitor
-                      </CardTitle>
-                      <CardDescription>Cantidad de citas atendidas por monitor</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => window.open('/api/reportes/citas-por-monitor', '_blank')}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <BookOpen className="h-5 w-5" />
-                        Citas por Materia
-                      </CardTitle>
-                      <CardDescription>Citas agrupadas por materia</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => window.open('/api/reportes/citas-por-materia', '_blank')}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <BarChart3 className="h-5 w-5" />
-                        Citas por Estado
-                      </CardTitle>
-                      <CardDescription>Distribución de citas por estado</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => window.open('/api/reportes/citas-por-estado', '_blank')}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <CalendarDays className="h-5 w-5" />
-                        Histórico de Citas
-                      </CardTitle>
-                      <CardDescription>Citas por fecha (orden descendente)</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => setShowHistoricoDialog(true)}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Clock className="h-5 w-5" />
-                        Monitorías por Día
-                      </CardTitle>
-                      <CardDescription>Total de monitorías por día de la semana</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Button
-                        className="w-full bg-red-800 hover:bg-red-900"
-                        onClick={() => window.open('/api/reportes/monitorias-por-dia', '_blank')}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Descargar Excel
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </div>
-              </div>
-            )}
 
             
           </main>

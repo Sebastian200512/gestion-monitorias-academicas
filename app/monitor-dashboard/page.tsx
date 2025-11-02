@@ -263,12 +263,7 @@ export default function MonitorDashboard() {
     showPhone: false,
     allowDirectMessages: false,
   })
-  const [preferences, setPreferences] = useState({
-    preferredLanguage: "es",
-    timezone: "America/Bogota",
-    defaultReminderTime: "30",
-    favoriteSubjects: [] as string[],
-  })
+  
 
   // Monitor profile data
   const [monitorData, setMonitorData] = useState({
@@ -455,14 +450,7 @@ export default function MonitorDashboard() {
           }
         } catch {}
 
-        // Preferences (si aplica)
-        try {
-          const preferencesRes = await fetch(`${API_BASE}/user/preferences`)
-          if (preferencesRes.ok) {
-            const preferencesData = await preferencesRes.json()
-            setPreferences(preferencesData)
-          }
-        } catch {}
+        
       } catch (error) {
         console.error("Error fetching data:", error)
       }
@@ -884,7 +872,7 @@ export default function MonitorDashboard() {
             id: `appointment_cancelled-${apt.id}`,
             type: "appointment_cancelled",
             title: "Cita cancelada",
-            message: `El estudiante canceló la cita de ${apt.subject}.`,
+            message: `La cita de ${apt.subject} con el estudiante ${apt.student.name} ha sido cancelada.`,
             date: new Date().toISOString(),
             read: false,
             appointmentId: apt.id
@@ -1070,7 +1058,6 @@ export default function MonitorDashboard() {
                         <BarChart3 className="h-5 w-5" />
                         Resumen Semanal
                       </CardTitle>
-                      <CardDescription>Métricas de esta semana</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="grid grid-cols-1 gap-3">
@@ -1561,7 +1548,6 @@ export default function MonitorDashboard() {
                       <TrendingUp className="h-5 w-5" />
                       Rendimiento Semanal
                     </CardTitle>
-                    <CardDescription>Métricas de esta semana</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1764,7 +1750,6 @@ export default function MonitorDashboard() {
                 <Tabs defaultValue="profile" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
-                    <TabsTrigger value="preferences">Preferencias</TabsTrigger>
                   </TabsList>
 
                   {/* Profile Tab */}
@@ -1793,9 +1778,8 @@ export default function MonitorDashboard() {
                             <Label htmlFor="code">Código</Label>
                             <Input id="code" type="text" value={monitorData.code || ""} disabled />
                           </div>
-                        </div>
+                        
 
-                        <div className="grid grid-cols-1 md-grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="program">Programa Académico</Label>
                             <Input id="program" type="text" value={monitorData.program || ""} disabled />
@@ -1804,7 +1788,7 @@ export default function MonitorDashboard() {
                             <Label htmlFor="semester">Semestre Actual</Label>
                             <Input id="semester" type="text" value={monitorData.semester || ""} disabled />
                           </div>
-                        </div>
+                          </div>
 
                         <div className="flex gap-2">
                           <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
@@ -1816,56 +1800,7 @@ export default function MonitorDashboard() {
                     </Card>
                   </TabsContent>
 
-                  {/* Preferences Tab */}
-                  <TabsContent value="preferences" className="space-y-6">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Preferencias Generales</CardTitle>
-                        <CardDescription>Personaliza tu experiencia en la plataforma</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Idioma</Label>
-                            <Select
-                              value={preferences.preferredLanguage}
-                              onValueChange={(value) => setPreferences({ ...preferences, preferredLanguage: value })}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="es">Español</SelectItem>
-                                <SelectItem value="en">English</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Zona Horaria</Label>
-                            <Select
-                              value={preferences.timezone}
-                              onValueChange={(value) => setPreferences({ ...preferences, timezone: value })}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="America/Bogota">Bogotá (GMT-5)</SelectItem>
-                                <SelectItem value="America/New_York">Nueva York (GMT-5)</SelectItem>
-                                <SelectItem value="Europe/Madrid">Madrid (GMT+1)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        <Button className="bg-red-800 hover:bg-red-900">
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar Preferencias
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
+                 
                 </Tabs>
               </div>
             )}

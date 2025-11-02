@@ -334,14 +334,14 @@ function saveNotifiedKeysForUser(userId: number, keys: Set<string>) {
   localStorage.setItem(notifiedKeysStorageKey(userId), JSON.stringify(Array.from(keys)));
 }
 
-// FIX: Merge estable por id, preservando "read:true"
+// FIX: Merge estable por id, preservando "read:true" y fecha original
 function mergeNotificationsById(existing: Notification[], incoming: Notification[]) {
   const map = new Map(existing.map(n => [n.id, n]));
   for (const n of incoming) {
     const prev = map.get(n.id);
     if (prev) {
-      // Preserve read status and other existing properties, but update message/date if needed
-      map.set(n.id, { ...n, read: prev.read });
+      // Preserve read status, date, and timestamp from existing notification
+      map.set(n.id, { ...n, read: prev.read, date: prev.date, timestamp: prev.timestamp });
     } else {
       map.set(n.id, n);
     }
@@ -424,13 +424,7 @@ export default function StudentDashboard() {
     semester: "",
   });
 
-  // Preferences
-  const [preferences, setPreferences] = useState({
-    preferredLanguage: "es",
-    timezone: "America/Bogota",
-    defaultReminderTime: "30",
-    favoriteSubjects: [] as string[],
-  });
+ 
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [subjectMonitorMap, setSubjectMonitorMap] = useState(new Map<string, Set<string>>());
@@ -502,7 +496,10 @@ export default function StudentDashboard() {
     (currentAppointments: Appointment[]) => {
       if (!userId) return;
 
-      console.log("Generando notificaciones para citas:", currentAppointments.length);
+      // Sort appointments by date descending to generate notifications in order
+      const sortedAppointments = currentAppointments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      console.log("Generando notificaciones para citas:", sortedAppointments.length);
       let nextNotifications = [...userNotifications];
       const keys = new Set(notifiedKeys);
       const prevMap = new Map(prevAppointments.map(a => [a.id, a]));
@@ -529,7 +526,7 @@ export default function StudentDashboard() {
         cleaned.forEach(k => keys.add(k));
       };
 
-      for (const apt of currentAppointments) {
+      for (const apt of sortedAppointments) {
         console.log("Procesando cita:", apt.id, apt.status, apt.date, apt.time);
         const prev = prevMap.get(apt.id);
         const startTime = new Date(`${apt.date}T${apt.time}`).getTime();
@@ -671,7 +668,7 @@ export default function StudentDashboard() {
       localStorage.setItem(notifiedKeysStorageKey(userId), JSON.stringify(Array.from(keys)));
       loadedNotifsRef.current = merged;
       loadedKeysRef.current = keys;
-      setPrevAppointments(currentAppointments);
+      setPrevAppointments(sortedAppointments);
       console.log("Notificaciones guardadas:", merged.length);
     },
     [userId, userNotifications, notifiedKeys, prevAppointments]
@@ -716,9 +713,9 @@ export default function StudentDashboard() {
         setUpcomingAppointments(upcoming);
         setHistoryAppointments(history);
 
-        // Inicializa prev en la primera carga
+        // Inicializa prev en la primera carga (sorted)
         if (prevAppointments.length === 0) {
-          setPrevAppointments(mapped);
+          setPrevAppointments(mapped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
         }
         // Update current appointments ref
         currentAppointmentsRef.current = mapped;
@@ -730,8 +727,7 @@ export default function StudentDashboard() {
         if (storageReadyRef.current) {
           generateNotifications(mapped);
         }
-        // Update prev after generation
-        setPrevAppointments(mapped);
+        // Update prev after generation (no need to set again, done in generateNotifications)
         console.log("Notificaciones generadas:", userNotifications.length);
         console.log("Citas procesadas:", mapped.length);
       } catch (e) {
@@ -901,9 +897,7 @@ export default function StudentDashboard() {
           }
         }
 
-        // Preferencias
-        const preferencesRes = await fetch(`${API_BASE}/user/preferences`);
-        if (preferencesRes.ok) setPreferences(await preferencesRes.json());
+       
 
         // Cargar + purgar notificaciones existentes
         if (userId) {
@@ -1419,9 +1413,9 @@ export default function StudentDashboard() {
                     {activeTab === "home" && `${currentUser?.programa || "Programa no especificado"} - ${currentUser?.semestre ? `${currentUser.semestre}to Semestre` : "Semestre no especificado"}`}
                     {activeTab === "booking" && "Completa la información requerida"}
                     {activeTab === "appointments" && "Gestiona tus monitorías programadas"}
-                    {activeTab === "history" && "Revisa tu progreso académico y califica tus sesiones"}
+                    {activeTab === "history" && "Revisa tu progreso académico"}
                     {activeTab === "notifications" && "Mantente al día con tus actividades y recordatorios"}
-                    {activeTab === "settings" && "Gestiona tu perfil y preferencias"}
+                    {activeTab === "settings" && "Gestiona tu perfil"}
                   </p>
                 </div>
               </div>
@@ -1503,7 +1497,7 @@ export default function StudentDashboard() {
                       <Plus className="h-5 w-5" />
                       Agendar Nueva Monitoría
                     </CardTitle>
-                    <CardDescription>Solicita apoyo académico con nuestros monitores especializados</CardDescription>
+                    <CardDescription>Solicita apoyo académico</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <Button className="bg-red-800 hover:bg-red-900" onClick={() => setActiveTab("booking")}>
@@ -2220,14 +2214,19 @@ export default function StudentDashboard() {
 
                 <div className="space-y-4">
                   {(() => {
-                    // FIX: Ordenar notificaciones por timestamp descendente antes de mostrarlas
+                    // FIX: Ordenar notificaciones: primero no leídas, luego leídas, ambas por timestamp descendente
                     const filtered = userNotifications
                       .filter((n) => {
                         if (notificationFilter === "all") return true;
                         if (notificationFilter === "unread") return !n.read;
                         return n.type === (notificationFilter as NotificationType);
                       })
-                      .sort((a, b) => (b.timestamp || new Date(b.date).getTime()) - (a.timestamp || new Date(a.date).getTime()));
+                      .sort((a, b) => {
+                        if (a.read !== b.read) {
+                          return a.read ? 1 : -1; // no leídas primero
+                        }
+                        return (b.timestamp || new Date(b.date).getTime()) - (a.timestamp || new Date(a.date).getTime());
+                      });
 
                     return filtered.length === 0 ? (
                       <Card>
@@ -2309,7 +2308,6 @@ export default function StudentDashboard() {
                 <Tabs defaultValue="profile" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
-                    <TabsTrigger value="preferences">Preferencias</TabsTrigger>
                   </TabsList>
 
                   {/* Profile Tab */}
@@ -2337,10 +2335,6 @@ export default function StudentDashboard() {
                             <Input id="email" type="email" value={userData.email} disabled />
                             <p className="text-xs text-gray-500">El correo institucional no se puede cambiar</p>
                           </div>
-                        </div>
-
-                        {/* Academic Info */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="studentId">Código Estudiantil</Label>
                             <Input id="studentId" value={userData.studentId} disabled />
@@ -2370,57 +2364,6 @@ export default function StudentDashboard() {
                     </Card>
                   </TabsContent>
 
-
-                  {/* Preferences Tab */}
-                  <TabsContent value="preferences" className="space-y-6">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Preferencias Generales</CardTitle>
-                        <CardDescription>Personaliza tu experiencia en la plataforma</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>Idioma</Label>
-                            <Select
-                              value={preferences.preferredLanguage}
-                              onValueChange={(value) => setPreferences({ ...preferences, preferredLanguage: value })}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="es">Español</SelectItem>
-                                <SelectItem value="en">English</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Zona Horaria</Label>
-                            <Select
-                              value={preferences.timezone}
-                              onValueChange={(value) => setPreferences({ ...preferences, timezone: value })}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="America/Bogota">Bogotá (GMT-5)</SelectItem>
-                                <SelectItem value="America/New_York">Nueva York (GMT-5)</SelectItem>
-                                <SelectItem value="Europe/Madrid">Madrid (GMT+1)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        <Button className="bg-red-800 hover:bg-red-900">
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar Preferencias
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
                 </Tabs>
               </div>
             )}
