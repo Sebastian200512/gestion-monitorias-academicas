@@ -217,6 +217,8 @@ const formatTime12Hour = (time24: string) => {
 };
 const toLocalDate = (fecha: string, hora: string) => new Date(`${fecha}T${hora}`);
 
+const ymd = (date: Date) => date.toISOString().split("T")[0];
+
 const API_BASE = "/api";
 
 // FIX: Mapper único para normalizar citas del API
@@ -377,6 +379,27 @@ export default function StudentDashboard() {
   } | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
+
+  // Estados para capacidad de cupos
+  const [capacityCache, setCapacityCache] = useState<Record<string, {ocupadas:number;limite:number;disponibles:number}>>({});
+  const [isLoadingCapacity, setIsLoadingCapacity] = useState(false);
+
+  const ymd = (d: Date) => d.toISOString().slice(0,10);
+
+  async function loadCapacityFor(dispId: string | number, dateYMD: string) {
+    const key = `${dispId}:${dateYMD}`;
+    if (capacityCache[key]) return capacityCache[key];
+    setIsLoadingCapacity(true);
+    try {
+      const res = await fetch(`/api/disponibilidades/${dispId}/capacidad?fecha=${dateYMD}`);
+      if (!res.ok) throw new Error('Error al obtener capacidad');
+      const data = await res.json();
+      setCapacityCache(prev => ({ ...prev, [key]: data }));
+      return data;
+    } finally {
+      setIsLoadingCapacity(false);
+    }
+  }
 
   // Appointments
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
@@ -781,7 +804,7 @@ export default function StudentDashboard() {
   }, [searchSubject]);
 
   /* ===========================
-     
+
      Disponibilidades por materia
   =========================== */
   useEffect(() => {
@@ -809,6 +832,14 @@ export default function StudentDashboard() {
     setSelectedDisp(null);
     setSelectedDate(null);
   }, [selectedSubject]);
+
+  /* ===========================
+     Cargar capacidad al seleccionar fecha y disponibilidad
+  =========================== */
+  useEffect(() => {
+    if (!selectedDisp || !selectedDate) return;
+    loadCapacityFor(selectedDisp.id, ymd(selectedDate)).catch(() => {});
+  }, [selectedDisp, selectedDate]);
 
   /* ===========================
      Cargar datos generales
@@ -1566,7 +1597,7 @@ export default function StudentDashboard() {
               </div>
             )}
 
-            {/* Booking Tab */}
+            {/* Agendar cita tab */}
             {activeTab === "booking" && (
               <div className="max-w-6xl mx-auto">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1817,11 +1848,46 @@ export default function StudentDashboard() {
                           <span>{selectedDisp?.ubicacion || "Aula por asignar"}</span>
                         </div>
 
+                        {selectedDisp && selectedDate && (
+                          <div className="flex items-center gap-2 text-sm">
+                            {isLoadingCapacity ? (
+                              <span className="text-gray-500">Cargando cupos...</span>
+                            ) : (() => {
+                              const key = `${selectedDisp.id}:${ymd(selectedDate)}`;
+                              const cap = capacityCache[key];
+                              if (!cap) return <span className="text-gray-500">Sin datos de cupos</span>;
+                              return (
+                                <>
+                                  <span className="px-2 py-1 rounded border border-gray-200">
+                                    Cupos: {cap.ocupadas}/{cap.limite}
+                                  </span>
+                                  <span className={cap.disponibles > 0 ? "text-gray-600" : "text-red-600 font-medium"}>
+                                    Disponibles: {cap.disponibles}
+                                  </span>
+                                  {cap.disponibles <= 0 && (
+                                    <div className="text-red-600 font-medium">
+                                      No hay cupos disponibles para este horario.
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        )}
+
                         {canBookAppointment() && (
                           <div className="border-t pt-4">
                             <Button
                               className="w-full bg-red-800 hover:bg-red-900"
                               onClick={handleBookAppointment}
+                              disabled={
+                                isLoadingCapacity ||
+                                (() => {
+                                  const key = `${selectedDisp?.id}:${selectedDate ? ymd(selectedDate) : ""}`;
+                                  const cap = key && capacityCache[key];
+                                  return !cap || cap.disponibles <= 0;
+                                })()
+                              }
                             >
                               <CheckCircle className="h-4 w-4 mr-2" />
                               Confirmar Cita

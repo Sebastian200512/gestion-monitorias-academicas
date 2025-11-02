@@ -3,13 +3,45 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { estado, fecha_cita, notas_monitor, rating, feedback } = await req.json();
+  const { estado, fecha_cita, notas_monitor, rating, feedback, disponibilidad_id } = await req.json();
 
-  if (!estado && !fecha_cita && notas_monitor === undefined && rating === undefined && feedback === undefined) {
-    return NextResponse.json({ ok: false, msg: "Al menos un campo requerido: estado, fecha, notas, rating o feedback" }, { status: 400 });
+  if (!estado && !fecha_cita && notas_monitor === undefined && rating === undefined && feedback === undefined && !disponibilidad_id) {
+    return NextResponse.json({ ok: false, msg: "Al menos un campo requerido: estado, fecha, notas, rating, feedback o disponibilidad_id" }, { status: 400 });
   }
 
   try {
+    // FIX: Si cambian fecha_cita, disponibilidad_id o estado → validar cupo
+    if (estado || fecha_cita || disponibilidad_id) {
+      const citaId = Number(id);
+      const current: any[] = await query(`SELECT * FROM citas WHERE id = ?`, [citaId]);
+      if (current.length === 0) {
+        return NextResponse.json({ ok: false, msg: "Cita no encontrada" }, { status: 404 });
+      }
+      const currentCita = current[0];
+
+      const nextDispId = disponibilidad_id ?? currentCita.disponibilidad_id;
+      const nextFecha = fecha_cita ?? currentCita.fecha_cita;
+      const nextEstado = estado ?? currentCita.estado;
+
+      if (['pendiente','confirmada'].includes(nextEstado)) {
+        const [cap]: any[] = await query(
+          `SELECT COUNT(*) AS usados
+             FROM citas
+            WHERE disponibilidad_id = ?
+              AND fecha_cita       = ?
+              AND estado IN ('pendiente','confirmada')
+              AND id <> ?`,
+          [nextDispId, nextFecha, citaId]
+        );
+        if (Number(cap?.usados ?? 0) >= 10) {
+          return NextResponse.json(
+            { ok: false, msg: "No hay cupos disponibles para este horario (máximo 10)." },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     let updateSql = `UPDATE citas SET `;
     const params: any[] = [];
     const updates: string[] = [];
@@ -33,6 +65,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (feedback !== undefined) {
       updates.push(`feedback = ?`);
       params.push(feedback);
+    }
+    if (disponibilidad_id) {
+      updates.push(`disponibilidad_id = ?`);
+      params.push(disponibilidad_id);
     }
 
     updateSql += updates.join(', ') + ` WHERE id = ?`;

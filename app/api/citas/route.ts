@@ -4,6 +4,22 @@ import { NextRequest, NextResponse } from "next/server";
 export async function POST(req: NextRequest) {
   const { estudiante_id, disponibilidad_id, fecha_cita } = await req.json();
 
+  // FIX: Validar cupo antes de crear cita
+  const [cap]: any[] = await query(
+    `SELECT COUNT(*) AS usados
+       FROM citas
+      WHERE disponibilidad_id = ?
+        AND fecha_cita       = ?
+        AND estado IN ('pendiente','confirmada')`,
+    [disponibilidad_id, fecha_cita]
+  );
+  if (Number(cap?.usados ?? 0) >= 10) {
+    return NextResponse.json(
+      { ok: false, msg: "No hay cupos disponibles para este horario (máximo 10)." },
+      { status: 409 }
+    );
+  }
+
   // Get disponibilidad
   const dispQuery = `SELECT * FROM disponibilidades WHERE id = ? AND estado = 'Activa'`;
   const dispResult = await query(dispQuery, [disponibilidad_id]);
