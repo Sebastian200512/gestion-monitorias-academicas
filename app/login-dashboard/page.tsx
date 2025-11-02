@@ -1,66 +1,68 @@
 "use client";
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { GraduationCap, Mail, Lock, AlertCircle } from "lucide-react"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { GraduationCap, Mail, Lock, AlertCircle } from "lucide-react";
 
-const API_BASE = "/api"
+const API_BASE = "/api";
 
 export default function LoginPage() {
-  const router = useRouter()
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError("")
+    e.preventDefault();
+    setLoading(true);
+    setError("");
 
     try {
       const response = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", // <- importante para la cookie HttpOnly
         body: JSON.stringify({ email, password }),
-      })
+      });
 
-      if (response.ok) {
-        const data = await response.json()
-        // Store token in localStorage or sessionStorage
-        localStorage.setItem("token", data.token)
-        localStorage.setItem("user", JSON.stringify(data.user))
+      const data = await response.json();
 
-        // Redirect based on role
-        switch (data.user.role) {
-          case "admin":
-            router.push("/admin-dashboard")
-            break
-          case "monitor":
-            router.push("/monitor-dashboard")
-            break
-          case "student":
-            router.push("/estudiante-dashboard")
-            break
-          default:
-            setError("Rol de usuario no reconocido")
-        }
-      } else {
-        const errorData = await response.json()
-        setError(errorData.message || "Credenciales inválidas")
+      if (!response.ok) {
+        setError(data.error || "Correo o contraseña inválidos");
+        return;
       }
-    } catch (error) {
-      setError("Error de conexión. Inténtalo de nuevo.")
+
+      // NO guardes el token (va en cookie HttpOnly)
+      // Si quieres, guarda el user para la UI (no es sensible)
+      try {
+        window.sessionStorage.setItem("user", JSON.stringify(data.user));
+      } catch {}
+
+      // Redirección por rol (viene como data.user.role)
+      switch (data.user.role) {
+        case "admin":
+          router.push("/admin-dashboard");
+          break;
+        case "monitor":
+          router.push("/monitor-dashboard");
+          break;
+        case "student":
+          router.push("/estudiante-dashboard");
+          break;
+        default:
+          setError("Rol de usuario no reconocido");
+      }
+    } catch {
+      setError("Error de conexión. Inténtalo de nuevo.");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-50 to-amber-50 flex items-center justify-center p-4">
@@ -140,17 +142,15 @@ export default function LoginPage() {
                 ¿Olvidaste tu contraseña?
               </a>
             </div>
-
-            
           </CardContent>
         </Card>
 
         {/* Footer */}
         <div className="text-center mt-6 text-xs text-gray-500">
-          <p>© 2024 Universidad Católica de Pereira</p>
+          <p>© 2025 Universidad Católica de Pereira</p>
           <p>Programa de Acompañamiento Académico</p>
         </div>
       </div>
     </div>
-  )
+  );
 }

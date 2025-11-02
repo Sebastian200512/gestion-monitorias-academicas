@@ -251,6 +251,8 @@ export default function AdminDashboardComplete() {
   const [currentPageAppointments, setCurrentPageAppointments] = useState(1)
   const pageSizeAppointments = 10
   const [openSubjectFilter, setOpenSubjectFilter] = useState(false)
+  const [filterMonitorSubject, setFilterMonitorSubject] = useState("all")
+  const [openMonitorSubjectFilter, setOpenMonitorSubjectFilter] = useState(false)
 
   /** ======== ESTADO DE DATOS (LIMPIO, SIN MOCKS) ======== */
   const [users, setUsers] = useState<UserType[]>([])
@@ -466,6 +468,9 @@ export default function AdminDashboardComplete() {
       }
     }
 
+    // Sort by date ascending (closest dates first)
+    filtered = filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
     return filtered
   }, [appointments, searchTerm, filterStatus, filterFaculty, filterLocation, filterDate])
 
@@ -510,8 +515,11 @@ export default function AdminDashboardComplete() {
         m.id.toLowerCase().includes(term)
       )
     }
+    if (filterMonitorSubject !== "all") {
+      filtered = filtered.filter(m => m.materia_asignada?.nombre === filterMonitorSubject)
+    }
     return filtered
-  }, [monitorsWithSessions, searchTerm])
+  }, [monitorsWithSessions, searchTerm, filterMonitorSubject])
 
   /** ======== PAGINACIÓN DE MONITORES ======== */
   const paginatedMonitors = useMemo(() => {
@@ -948,7 +956,52 @@ export default function AdminDashboardComplete() {
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
 
-                      <Button variant="outline" size="icon" onClick={() => setSearchTerm('')}><RefreshCw className="h-4 w-4" /></Button>
+                      <Popover open={openMonitorSubjectFilter} onOpenChange={setOpenMonitorSubjectFilter}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={openMonitorSubjectFilter}
+                            className="w-[250px] justify-between"
+                          >
+                            {filterMonitorSubject === "all" ? "Todas las materias" : filterMonitorSubject}
+                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[250px] p-0">
+                          <Command>
+                            <CommandInput placeholder="Buscar materia..." />
+                            <CommandList>
+                              <CommandEmpty>No se encontraron materias.</CommandEmpty>
+                              <CommandGroup>
+                                <CommandItem
+                                  onSelect={() => {
+                                    setFilterMonitorSubject("all")
+                                    setOpenMonitorSubjectFilter(false)
+                                  }}
+                                >
+                                  <Check className={cn("mr-2 h-4 w-4", filterMonitorSubject === "all" ? "opacity-100" : "opacity-0")} />
+                                  Todas las materias
+                                </CommandItem>
+                                {subjects.map((subject) => (
+                                  <CommandItem
+                                    key={subject.id}
+                                    onSelect={() => {
+                                      setFilterMonitorSubject(subject.name)
+                                      setOpenMonitorSubjectFilter(false)
+                                    }}
+                                  >
+                                    <Check className={cn("mr-2 h-4 w-4", filterMonitorSubject === subject.name ? "opacity-100" : "opacity-0")} />
+                                    {subject.name}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+
+                      <Button variant="outline" size="icon" onClick={() => { setSearchTerm(''); setFilterMonitorSubject('all'); }}><RefreshCw className="h-4 w-4" /></Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -1223,40 +1276,45 @@ export default function AdminDashboardComplete() {
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => { setEditingAppointment(appointment); setEditAppointmentDate(appointment.date); setShowEditAppointmentDialog(true); }}><Edit className="h-4 w-4 mr-2" />Editar</DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    className="text-red-600"
-                                    onClick={async () => {
-                                      if (appointment.status === 'cancelada') {
-                                        alert('Error: La cita ya está cancelada');
-                                        return;
-                                      }
-                                      try {
-                                        const res = await fetch(`/api/citas/${appointment.id}`, {
-                                          method: 'PUT',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({ estado: 'cancelada' }),
-                                        });
-                                        if (res.ok) {
-                                          alert('Cita cancelada exitosamente');
-                                          window.location.reload();
-                                        } else {
-                                          const error = await res.json();
-                                          alert(`Error: ${error.msg}`);
-                                        }
-                                      } catch (err) {
-                                        console.error('Error cancelling appointment:', err);
-                                        alert('Error al cancelar la cita');
-                                      }
-                                    }}
-                                  >
-                                    <XCircle className="h-4 w-4 mr-2" />Cancelar
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+                                disabled={appointment.status === 'cancelada' || appointment.status === 'completada'}
+                                onClick={async () => {
+                                  if (appointment.status === 'cancelada') {
+                                    alert('Error: La cita ya está cancelada');
+                                    return;
+                                  }
+                                  if (appointment.status === 'completada') {
+                                    alert('Error: La cita ya está completada');
+                                    return;
+                                  }
+                                  if (!confirm('¿Estás seguro de que deseas cancelar esta cita?')) {
+                                    return;
+                                  }
+                                  try {
+                                    const res = await fetch(`/api/citas/${appointment.id}`, {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ estado: 'cancelada' }),
+                                    });
+                                    if (res.ok) {
+                                      alert('Cita cancelada exitosamente');
+                                      window.location.reload();
+                                    } else {
+                                      const error = await res.json();
+                                      alert(`Error: ${error.msg}`);
+                                    }
+                                  } catch (err) {
+                                    console.error('Error cancelling appointment:', err);
+                                    alert('Error al cancelar la cita');
+                                  }
+                                }}
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Cancelar cita
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}

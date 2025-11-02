@@ -307,6 +307,13 @@ export default function MonitorDashboard() {
     }).toLowerCase()
   }
 
+  const normalizeDate = (dateStr: string) => {
+    if (!dateStr) return null
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return null
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  }
+
   const addTwoHours = (time24: string) => {
     if (!time24) return ""
     const [h, m] = time24.split(':').map(Number)
@@ -782,7 +789,7 @@ export default function MonitorDashboard() {
     const appointmentDay = new Date(appointmentDate.getFullYear(), appointmentDate.getMonth(), appointmentDate.getDate())
     return apt.status !== "completada" &&
            (appointmentDay > today || (appointmentDay.getTime() === today.getTime() && appointmentEndTime >= now))
-  })
+  }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
   const completedAppointments = appointments.filter((apt) => apt.status === "completada")
 
   const filteredUpcomingAppointments = upcomingAppointments.filter((appointment) => {
@@ -979,9 +986,18 @@ export default function MonitorDashboard() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-gray-600">Citas</p>
+                          <p className="text-sm text-gray-600">Citas Esta Semana</p>
                           <p className="text-2xl font-bold text-gray-900">
-                            {upcomingAppointments.length}
+                            {(() => {
+                              const now = new Date()
+                              const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                              const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
+
+                              return appointments.filter(apt => {
+                                const aptDate = new Date(apt.date)
+                                return aptDate >= startOfWeek && aptDate <= endOfWeek
+                              }).length
+                            })()}
                           </p>
                         </div>
                         <Calendar className="h-8 w-8 text-red-800" />
@@ -1011,9 +1027,19 @@ export default function MonitorDashboard() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-gray-600">Estudiantes</p>
+                          <p className="text-sm text-gray-600">Estudiantes Esta Semana</p>
                           <p className="text-2xl font-bold text-gray-900">
-                            {new Set(appointments.map(apt => apt.student.name)).size}
+                            {(() => {
+                              const now = new Date()
+                              const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())
+                              const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6)
+
+                              const weeklyAppointments = appointments.filter(apt => {
+                                const aptDate = new Date(apt.date)
+                                return aptDate >= startOfWeek && aptDate <= endOfWeek
+                              })
+                              return new Set(weeklyAppointments.map(apt => apt.student.name)).size
+                            })()}
                           </p>
                         </div>
                         <Users className="h-8 w-8 text-red-600" />
@@ -1491,7 +1517,7 @@ export default function MonitorDashboard() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Reportes y Estadísticas</h2>
+                    <h2 className="text-2xl font-bold text-gray-900">Estadísticas</h2>
                     <p className="text-gray-600">Analiza tu desempeño como monitor</p>
                   </div>
                 </div>

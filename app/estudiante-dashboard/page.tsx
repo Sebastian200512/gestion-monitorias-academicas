@@ -1556,7 +1556,18 @@ export default function StudentDashboard() {
                         </Button>
                       </div>
                     ) : (
-                      upcomingAppointments.map((appointment) => (
+                      upcomingAppointments
+                        .sort((a, b) => {
+                          const dateA = normalizeDate(a.date);
+                          const dateB = normalizeDate(b.date);
+                          if (!dateA && !dateB) return 0;
+                          if (!dateA) return 1;
+                          if (!dateB) return -1;
+                          if (dateA.getTime() !== dateB.getTime()) return dateA.getTime() - dateB.getTime();
+                          return a.time.localeCompare(b.time);
+                        })
+                        .slice(0, 4)
+                        .map((appointment) => (
                         <div
                           key={appointment.id}
                           className="flex items-center justify-between p-4 border border-gray-200 rounded-lg"
@@ -1953,7 +1964,17 @@ export default function StudentDashboard() {
                         </CardContent>
                       </Card>
                     ) : (
-                      filteredUpcomingAppointments.map((appointment) => (
+                      filteredUpcomingAppointments
+                        .sort((a, b) => {
+                          const dateA = normalizeDate(a.date);
+                          const dateB = normalizeDate(b.date);
+                          if (!dateA && !dateB) return 0;
+                          if (!dateA) return 1;
+                          if (!dateB) return -1;
+                          if (dateA.getTime() !== dateB.getTime()) return dateA.getTime() - dateB.getTime();
+                          return a.time.localeCompare(b.time);
+                        })
+                        .map((appointment) => (
                         <Card key={appointment.id}>
                           <CardContent className="p-6">
                             <div className="flex items-start justify-between">
