@@ -237,8 +237,9 @@ export default function AdminDashboardComplete() {
   const [filterStatus, setFilterStatus] = useState("all")
   const [filterRole, setFilterRole] = useState("all")
   const [filterFaculty, setFilterFaculty] = useState("all")
-  const [filterDate, setFilterDate] = useState("all")
+  const [filterDate, setFilterDate] = useState("week")
   const [filterSubjectStatus, setFilterSubjectStatus] = useState("all")
+  const [filterLocation, setFilterLocation] = useState("all")
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [editingItem, setEditingItem] = useState<any>(null)
   const [currentPageSubjects, setCurrentPageSubjects] = useState(1)
@@ -398,6 +399,12 @@ export default function AdminDashboardComplete() {
     })()
   }, [])
 
+  /** ======== UNIQUE LOCATIONS ======== */
+  const uniqueLocations = useMemo(() => {
+    const locs = new Set(appointments.map(apt => apt.location).filter(Boolean))
+    return Array.from(locs).sort()
+  }, [appointments])
+
   /** ======== FILTRADO DE CITAS ======== */
   const filteredAppointments = useMemo(() => {
     let filtered = appointments
@@ -429,6 +436,11 @@ export default function AdminDashboardComplete() {
       filtered = filtered.filter(apt => apt.subject === filterFaculty)
     }
 
+    // Filtro por ubicación
+    if (filterLocation !== "all") {
+      filtered = filtered.filter(apt => apt.location === filterLocation)
+    }
+
     // Filtro por fecha
     if (filterDate !== "all") {
       const now = new Date()
@@ -455,7 +467,7 @@ export default function AdminDashboardComplete() {
     }
 
     return filtered
-  }, [appointments, searchTerm, filterStatus, filterFaculty, filterDate])
+  }, [appointments, searchTerm, filterStatus, filterFaculty, filterLocation, filterDate])
 
   /** ======== PAGINACIÓN DE CITAS ======== */
   const paginatedAppointments = useMemo(() => {
@@ -590,7 +602,7 @@ export default function AdminDashboardComplete() {
         case "users": setSelectedItems(filteredUsers.map(u => u.id)); break
         case "monitors": setSelectedItems(filteredMonitors.map(m => m.id)); break
         case "subjects": setSelectedItems(filteredSubjects.map(s => s.id)); break
-        case "appointments": setSelectedItems(filteredAppointments.map(a => a.id)); break
+        case "appointments": setSelectedItems(filteredAppointments.map((appointment: Appointment) => appointment.id)); break
         default: setSelectedItems([])
       }
     } else {

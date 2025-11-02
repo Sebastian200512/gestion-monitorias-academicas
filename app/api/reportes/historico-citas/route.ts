@@ -114,14 +114,12 @@ export async function GET(request: Request) {
       { header: "Estudiante", key: "estudiante_nombre", width: 28 },
       { header: "Estud. Email", key: "estudiante_email", width: 26 },
       { header: "Programa", key: "estudiante_programa", width: 32 },
-      { header: "Semestre", key: "estudiante_semestre", width: 10 },
 
       { header: "Monitor ID", key: "monitor_id", width: 12 },
       { header: "Monitor Código", key: "monitor_codigo", width: 14 },
       { header: "Monitor", key: "monitor_nombre", width: 28 },
       { header: "Monitor Email", key: "monitor_email", width: 26 },
 
-      { header: "Materia ID", key: "materia_id", width: 12 },
       { header: "Materia Código", key: "materia_codigo", width: 16 },
       { header: "Materia", key: "materia_nombre", width: 28 },
 
@@ -149,14 +147,12 @@ export async function GET(request: Request) {
         estudiante_nombre: row.estudiante_nombre,
         estudiante_email: row.estudiante_email,
         estudiante_programa: row.estudiante_programa,
-        estudiante_semestre: row.estudiante_semestre,
 
         monitor_id: row.monitor_id,
         monitor_codigo: row.monitor_codigo,
         monitor_nombre: row.monitor_nombre,
         monitor_email: row.monitor_email,
 
-        materia_id: row.materia_id,
         materia_codigo: row.materia_codigo,
         materia_nombre: row.materia_nombre,
 
