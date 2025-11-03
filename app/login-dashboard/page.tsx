@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"; // Componente de botón reutili
 import { Input } from "@/components/ui/input"; // Componente de entrada de texto reutilizable
 import { Label } from "@/components/ui/label"; // Componente de etiqueta para inputs
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"; // Componentes para tarjetas UI
-import { GraduationCap, Mail, Lock, AlertCircle } from "lucide-react"; // Iconos de Lucide React para UI
+import { Mail, Lock, AlertCircle } from "lucide-react"; // Iconos de Lucide React para UI
+import Image from "next/image"; // Para manejar imágenes en Next.js
 
 // Constante para la base de la API, definida como ruta relativa
 const API_BASE = "/api";
@@ -84,9 +85,15 @@ export default function LoginPage() {
         {/* Sección del logo y header institucional */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            {/* Icono del logo institucional */}
-            <div className="bg-red-800 p-3 rounded-full">
-              <GraduationCap className="h-8 w-8 text-white" />
+            {/* Logo institucional */}
+            <div className=" p-1 rounded-full">
+              <Image
+                src="/logo.png"
+                alt="Logo Institucional"
+                width={200}
+                height={200}
+                className="rounded-full"
+              />
             </div>
           </div>
           {/* Título y subtítulo de la aplicación */}

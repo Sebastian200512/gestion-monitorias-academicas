@@ -80,13 +80,7 @@ function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiv
     <Sidebar className="border-r border-gray-200 h-screen">
       <SidebarHeader className="border-b border-gray-200 p-4 bg-red-800">
         <div className="flex items-center gap-3">
-          <div className="bg-amber-600 p-2 rounded-lg">
-            <Shield className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Admin Panel</h2>
-            <p className="text-xs text-red-100">Monitorías UCP</p>
-          </div>
+            <img src="/logo.png" alt="Logo"  />
         </div>
       </SidebarHeader>
 

@@ -118,16 +118,10 @@ function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setAct
     <Sidebar className="border-r border-gray-200">
       {/* Encabezado del sidebar (branding del módulo) */}
       <SidebarHeader className="border-b border-gray-200 p-4 bg-red-800">
-        <div className="flex items-center gap-3">
-          <div className="bg-amber-600 p-2 rounded-lg">
-            <GraduationCap className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Monitorías UCP</h2>
-            <p className="text-xs text-red-100">Monitor</p>
-          </div>
-        </div>
-      </SidebarHeader>
+              <div className="flex items-center gap-3">
+                  <img src="/logo.png" alt="Logo"  />
+              </div>
+            </SidebarHeader>
 
       {/* Cuerpo del sidebar: menú + botón de salir */}
       <SidebarContent className="p-4">
