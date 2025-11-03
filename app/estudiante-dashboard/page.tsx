@@ -71,10 +71,12 @@ import {
 } from "lucide-react";
 
 /* ===========================
-   Sidebar (no tocado)
+   Sidebar 
+   — Muestra navegación lateral y botón de cerrar sesión.
 =========================== */
 function AppSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (tab: string) => void }) {
   const router = useRouter();
+  // Cuando cierro sesión, regreso al login
   const handleLogout = () => {
     router.replace("/login-dashboard");
   };
@@ -105,6 +107,7 @@ function AppSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveT
         <SidebarMenu>
           {menuItems.map((item) => (
             <SidebarMenuItem key={item.value}>
+              {/* Botón de cada sección, marcando la activa */}
               <SidebarMenuButton asChild isActive={activeTab === item.value}>
                 <button
                   onClick={() => setActiveTab(item.value)}
@@ -118,6 +121,7 @@ function AppSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveT
           ))}
         </SidebarMenu>
 
+        {/* Cerrar sesión al final */}
         <div className="mt-auto pt-4 border-t border-gray-200">
           <SidebarMenu>
             <SidebarMenuItem>
@@ -136,7 +140,8 @@ function AppSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveT
 }
 
 /* ===========================
-   Tipos
+   Tipos (para darle forma a los datos)
+   — Esto hace más claro qué espero de cada objeto.
 =========================== */
 interface Subject {
   id: string;
@@ -199,7 +204,7 @@ interface Notification {
   title: string;
   message: string;
   date: string; // ISO
-  timestamp: number; // for precise ordering
+  timestamp: number; // para ordenar exacto
   read: boolean;
   appointmentId?: string;
   actionUrl?: string;
@@ -207,8 +212,10 @@ interface Notification {
 
 /* ===========================
    Helpers comunes
+   — Utilidades pequeñas que uso en varios lados.
 =========================== */
 const formatTime12Hour = (time24: string) => {
+  // Convierte "HH:mm" a formato 12 horas legible (es-CO)
   if (!time24) return "";
   const [h, m] = time24.split(":").map((n) => parseInt(n, 10));
   const d = new Date();
@@ -216,12 +223,12 @@ const formatTime12Hour = (time24: string) => {
   return d.toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
 };
 const toLocalDate = (fecha: string, hora: string) => new Date(`${fecha}T${hora}`);
-
+// Fecha YYYY-MM-DD
 const ymd = (date: Date) => date.toISOString().split("T")[0];
-
+// Base de mi API
 const API_BASE = "/api";
 
-// FIX: Mapper único para normalizar citas del API
+// Normalizo una cita que viene del API a mi tipo Appointment
 function mapApiCitaToAppointment(cita: any): Appointment {
   const start = cita.hora_inicio?.slice(0,5) ?? "00:00";
   const end = cita.hora_fin?.slice(0,5) ?? start;
@@ -240,6 +247,7 @@ function mapApiCitaToAppointment(cita: any): Appointment {
     status: cita.estado,
     details: cita.detalles ?? "",
     duration: (() => {
+      // minutos entre inicio y fin
       const [sh, sm] = start.split(":").map(Number);
       const [eh, em] = end.split(":").map(Number);
       return (eh * 60 + em) - (sh * 60 + sm);
@@ -250,26 +258,27 @@ function mapApiCitaToAppointment(cita: any): Appointment {
 }
 
 /* =========================================================
-   NOTIFICACIONES (CLON MONITOR) — Helpers de storage
+   NOTIFICACIONES (modo localStorage)
+   — Guardo por usuario y no piso estados "leído".
 ========================================================= */
-// FIX: Claves únicas por estudiante
+// Claves únicas por estudiante
 const notifStorageKey = (uid: number) => `estudiante_notifications_${uid}`;
 const notifiedKeysStorageKey = (uid: number) => `estudiante_notified_keys_${uid}`;
-const notifVersionKey = (uid: number) => `estudiante_notifications_version_${uid}`; // para migraciones
+const notifVersionKey = (uid: number) => `estudiante_notifications_version_${uid}`; // por si cambio formato
 const CURRENT_NOTIF_VERSION = 'v2';
 
+// Carga lista de notificaciones desde localStorage
 function loadNotificationsForUser(userId: number): Notification[] {
   try {
     let rawNotifs = localStorage.getItem(notifStorageKey(userId));
     let rawKeys = localStorage.getItem(notifiedKeysStorageKey(userId));
     let rawVer  = localStorage.getItem(notifVersionKey(userId));
 
-    // Migration: if no data under new keys, try old keys
+    // Migración desde claves antiguas (si existen)
     if (!rawNotifs) {
       const oldKey = `student_notifications_${userId}`;
       rawNotifs = localStorage.getItem(oldKey);
       if (rawNotifs) {
-        // Migrate to new key
         localStorage.setItem(notifStorageKey(userId), rawNotifs);
         localStorage.removeItem(oldKey);
         console.log("Migrated notifications from old key");
@@ -291,13 +300,12 @@ function loadNotificationsForUser(userId: number): Notification[] {
     if (rawNotifs) loadedNotifs = JSON.parse(rawNotifs);
     if (rawKeys) loadedKeys = JSON.parse(rawKeys);
 
-    // FIX: Migración simple por versión (si cambiaste formato de date/ids)
+    // Si cambia versión, normalizo fecha/timestamp
     if (rawVer !== CURRENT_NOTIF_VERSION) {
-      // Normaliza: garantiza que cada notif tenga date en ISO y timestamp
       loadedNotifs = loadedNotifs.map(n => ({
         ...n,
-        date: new Date(n.date).toISOString(), // asegura ISO
-        timestamp: n.timestamp || new Date(n.date).getTime(), // asegura timestamp
+        date: new Date(n.date).toISOString(),
+        timestamp: n.timestamp || new Date(n.date).getTime(),
       }));
       localStorage.setItem(notifVersionKey(userId), CURRENT_NOTIF_VERSION);
     }
@@ -307,15 +315,15 @@ function loadNotificationsForUser(userId: number): Notification[] {
     return [];
   }
 }
+// Guarda lista de notificaciones
 function saveNotificationsForUser(userId: number, items: Notification[]) {
   localStorage.setItem(notifStorageKey(userId), JSON.stringify(items));
   localStorage.setItem(notifVersionKey(userId), CURRENT_NOTIF_VERSION);
 }
+// Carga set de llaves ya notificadas (evita duplicar)
 function loadNotifiedKeysForUser(userId: number): Set<string> {
   try {
     let raw = localStorage.getItem(notifiedKeysStorageKey(userId));
-
-    // Migration: if no data under new key, try old key
     if (!raw) {
       const oldKey = `student_notified_keys_${userId}`;
       raw = localStorage.getItem(oldKey);
@@ -332,17 +340,18 @@ function loadNotifiedKeysForUser(userId: number): Set<string> {
     return new Set();
   }
 }
+// Guarda set de llaves notificadas
 function saveNotifiedKeysForUser(userId: number, keys: Set<string>) {
   localStorage.setItem(notifiedKeysStorageKey(userId), JSON.stringify(Array.from(keys)));
 }
 
-// FIX: Merge estable por id, preservando "read:true" y fecha original
+// Merge por id manteniendo "read:true" y orden por fecha
 function mergeNotificationsById(existing: Notification[], incoming: Notification[]) {
   const map = new Map(existing.map(n => [n.id, n]));
   for (const n of incoming) {
     const prev = map.get(n.id);
     if (prev) {
-      // Preserve read status, date, and timestamp from existing notification
+      // Conservo "read", "date" y "timestamp" anteriores
       map.set(n.id, { ...n, read: prev.read, date: prev.date, timestamp: prev.timestamp });
     } else {
       map.set(n.id, n);
@@ -357,13 +366,13 @@ function mergeNotificationsById(existing: Notification[], incoming: Notification
 =========================== */
 export default function StudentDashboard() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("home");
+  const [activeTab, setActiveTab] = useState("home"); // pestaña actual
 
-  // User
+  // Estado de usuario autenticado
   const [userId, setUserId] = useState<number | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // Booking
+  // Estados para agendar
   const [searchSubject, setSearchSubject] = useState("");
   const [filteredSubjects, setFilteredSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
@@ -380,12 +389,14 @@ export default function StudentDashboard() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
-  // Estados para capacidad de cupos
+  // Capacidad de cupos por disponibilidad/fecha (cache para no repetir fetch)
   const [capacityCache, setCapacityCache] = useState<Record<string, {ocupadas:number;limite:number;disponibles:number}>>({});
   const [isLoadingCapacity, setIsLoadingCapacity] = useState(false);
 
+  // ymd local para este scope (evitar choques con la global)
   const ymd = (d: Date) => d.toISOString().slice(0,10);
 
+  // Trae cupos de una disponibilidad en una fecha puntual
   async function loadCapacityFor(dispId: string | number, dateYMD: string) {
     const key = `${dispId}:${dateYMD}`;
     if (capacityCache[key]) return capacityCache[key];
@@ -401,7 +412,7 @@ export default function StudentDashboard() {
     }
   }
 
-  // Appointments
+  // Estados para citas y modales
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -412,11 +423,11 @@ export default function StudentDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
 
-  // History
+  // Filtros del historial
   const [filterSubject, setFilterSubject] = useState("all");
   const [filterPeriod, setFilterPeriod] = useState("all");
 
-  // Settings
+  // Estados de seguridad/cuenta
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -424,19 +435,19 @@ export default function StudentDashboard() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // =============== NOTIFICACIONES ===============
+  // =============== NOTIFICACIONES (control y refs) ===============
   const [notificationFilter, setNotificationFilter] = useState("all");
   const [userNotifications, setUserNotifications] = useState<Notification[]>([]);
   const [notifiedKeys, setNotifiedKeys] = useState<Set<string>>(new Set());
   const [prevAppointments, setPrevAppointments] = useState<Appointment[]>([]);
-  // FIX: Control de orden de carga
+  // Refs para ordenar la secuencia de carga (primero storage, luego citas, etc.)
   const storageReadyRef = useRef(false);
   const appointmentsLoadedRef = useRef(false);
   const currentAppointmentsRef = useRef<Appointment[]>([]);
   const loadedNotifsRef = useRef<Notification[]>([]);
   const loadedKeysRef = useRef<Set<string>>(new Set());
 
-  // estados de perfil
+  // Perfil (tab settings, datos bloqueados para ediciones aquí)
   const [user, setUser] = useState<any | null>(null);
   const [userData, setUserData] = useState({
     firstName: "",
@@ -447,8 +458,7 @@ export default function StudentDashboard() {
     semester: "",
   });
 
- 
-
+  // Listas generales
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [subjectMonitorMap, setSubjectMonitorMap] = useState(new Map<string, Set<string>>());
   const [monitors, setMonitors] = useState<Monitor[]>([]);
@@ -458,6 +468,7 @@ export default function StudentDashboard() {
 
   /* ===========================
      Auth & usuario
+     — Si no hay user, mando al login. Si hay, guardo id.
   =========================== */
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
@@ -470,7 +481,7 @@ export default function StudentDashboard() {
     }
   }, [router]);
 
-  // Cargar info usuario (tab settings)
+  // Cargo datos del usuario solo cuando estoy en "settings"
   useEffect(() => {
     if (activeTab === "settings" && userId) {
       fetch("/api/usuarios")
@@ -494,9 +505,9 @@ export default function StudentDashboard() {
   }, [activeTab, userId]);
 
   /* ===============================================
-     NOTIFICACIONES — Cargar cache por usuario
+     NOTIFICACIONES — cargo cache del usuario una vez
+     — Primero storage, luego, si ya hay citas, genero.
   =============================================== */
-  // FIX: Carga inicial desde localStorage una única vez CUANDO ya hay userId
   useEffect(() => {
     if (!userId || storageReadyRef.current) return;
     const loadedNotifs = loadNotificationsForUser(userId);
@@ -506,20 +517,20 @@ export default function StudentDashboard() {
     setNotifiedKeys(loadedKeys);
     loadedNotifsRef.current = loadedNotifs;
     loadedKeysRef.current = loadedKeys;
-    storageReadyRef.current = true; // Ya podemos generar sin pisar "read"
+    storageReadyRef.current = true; // ya puedo generar sin perder "read"
     console.log("Notificaciones cargadas desde localStorage:", loadedNotifs.length);
-    // FIX: Generar notificaciones si las citas ya están cargadas
+
     if (appointmentsLoadedRef.current) {
       generateNotifications(currentAppointmentsRef.current);
     }
   }, [userId]);
 
-  // FIX: Generación completa de notificaciones del estudiante
+  // Genero notificaciones a partir de las citas (nuevas, cambios y recordatorios)
   const generateNotifications = useCallback(
     (currentAppointments: Appointment[]) => {
       if (!userId) return;
 
-      // Sort appointments by date descending to generate notifications in order
+      // Ordeno por fecha para que el flujo sea consistente
       const sortedAppointments = currentAppointments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       console.log("Generando notificaciones para citas:", sortedAppointments.length);
@@ -530,6 +541,7 @@ export default function StudentDashboard() {
       const now = Date.now();
       const THIRTY_SIX_HOURS = 36 * 60 * 60 * 1000;
 
+      // Evito duplicados por llave
       const pushUnique = (n: Notification, key: string) => {
         if (keys.has(key)) return nextNotifications;
         if (!nextNotifications.some(x => x.id === n.id)) {
@@ -539,6 +551,7 @@ export default function StudentDashboard() {
         return nextNotifications;
       };
 
+      // Limpio recordatorios viejos de una cita (si se cancela o sale del rango)
       const removeRemindersFor = (appointmentId: string) => {
         nextNotifications = nextNotifications.filter(n => !(n.type === "appointment_reminder" && n.appointmentId === appointmentId));
         const cleaned = new Set<string>();
@@ -554,7 +567,7 @@ export default function StudentDashboard() {
         const prev = prevMap.get(apt.id);
         const startTime = new Date(`${apt.date}T${apt.time}`).getTime();
 
-        // ✅ Nueva cita (siempre generar si es nueva)
+        // Nueva cita: notifico una sola vez
         if (!prev) {
           const now = Date.now();
           nextNotifications = pushUnique({
@@ -570,7 +583,7 @@ export default function StudentDashboard() {
           console.log("Notificación creada para nueva cita");
         }
 
-        // ✅ Notificaciones por estado actual (para carga inicial)
+        // Estado actual (por si ya viene confirmada/cancelada/completada)
         if (apt.status === "confirmada") {
           const now = Date.now();
           nextNotifications = pushUnique({
@@ -583,7 +596,6 @@ export default function StudentDashboard() {
             read: false,
             appointmentId: apt.id
           }, `status:${apt.id}:confirmada`);
-          console.log("Notificación confirmada (inicial)");
         } else if (apt.status === "cancelada") {
           removeRemindersFor(apt.id);
           const now = Date.now();
@@ -597,7 +609,6 @@ export default function StudentDashboard() {
             read: false,
             appointmentId: apt.id
           }, `status:${apt.id}:cancelada`);
-          console.log("Notificación cancelada (inicial)");
         } else if (apt.status === "completada") {
           const now = Date.now();
           nextNotifications = pushUnique({
@@ -610,12 +621,10 @@ export default function StudentDashboard() {
             read: false,
             appointmentId: apt.id
           }, `status:${apt.id}:completada`);
-          console.log("Notificación completada (inicial)");
         }
 
-        // ✅ Cambios de estado (solo si cambió)
+        // Si cambió el estado, genero la notificación del cambio
         if (prev && prev.status !== apt.status) {
-          console.log("Cambio de estado:", prev.status, "->", apt.status);
           if (apt.status === "cancelada") {
             removeRemindersFor(apt.id);
             const now = Date.now();
@@ -629,7 +638,6 @@ export default function StudentDashboard() {
               read: false,
               appointmentId: apt.id
             }, `status:${apt.id}:cancelada`);
-            console.log("Notificación cancelada (cambio)");
           } else if (apt.status === "confirmada") {
             const now = Date.now();
             nextNotifications = pushUnique({
@@ -642,7 +650,6 @@ export default function StudentDashboard() {
               read: false,
               appointmentId: apt.id
             }, `status:${apt.id}:confirmada`);
-            console.log("Notificación confirmada (cambio)");
           } else if (apt.status === "completada") {
             const now = Date.now();
             nextNotifications = pushUnique({
@@ -655,14 +662,12 @@ export default function StudentDashboard() {
               read: false,
               appointmentId: apt.id
             }, `status:${apt.id}:completada`);
-            console.log("Notificación completada (cambio)");
           }
         }
 
-        // ✅ Recordatorios dentro de 36h
+        // Recordatorios: solo para pendientes/confirmadas dentro de 36h
         if (apt.status !== "cancelada" && apt.status !== "completada") {
           const msUntilStart = startTime - now;
-          console.log("Verificando recordatorio, msUntilStart:", msUntilStart, "THIRTY_SIX_HOURS:", THIRTY_SIX_HOURS);
           if (msUntilStart > 0 && msUntilStart <= THIRTY_SIX_HOURS) {
             const now = Date.now();
             nextNotifications = pushUnique({
@@ -675,15 +680,14 @@ export default function StudentDashboard() {
               read: false,
               appointmentId: apt.id
             }, `reminder:${apt.id}:${new Date(apt.date).toDateString()}`);
-            console.log("Notificación recordatorio");
           } else {
+            // Si ya no aplica el recordatorio, lo limpio
             removeRemindersFor(apt.id);
           }
         }
       }
 
-      console.log("nextNotifications antes de merge:", nextNotifications.length);
-      // Guardar cambios
+      // Guardo y actualizo estados/refs
       const merged = mergeNotificationsById(loadedNotifsRef.current, nextNotifications);
       setUserNotifications(merged);
       setNotifiedKeys(keys);
@@ -692,13 +696,13 @@ export default function StudentDashboard() {
       loadedNotifsRef.current = merged;
       loadedKeysRef.current = keys;
       setPrevAppointments(sortedAppointments);
-      console.log("Notificaciones guardadas:", merged.length);
     },
     [userId, userNotifications, notifiedKeys, prevAppointments]
   );
 
   /* ==============================================================
-     Traer citas del estudiante y generar notificaciones (CLON)
+     Traer citas del estudiante y generar notificaciones
+     — Hago polling cada minuto para reflejar cambios.
   ============================================================== */
   useEffect(() => {
     if (!userId) return;
@@ -707,6 +711,7 @@ export default function StudentDashboard() {
       try {
         const res = await fetch(`/api/citas?estudiante_id=${userId}`, { cache: "no-store" });
         if (!res.ok) {
+          // Si no responde, limpio para no mostrar basura
           setUpcomingAppointments([]);
           setHistoryAppointments([]);
           setPrevAppointments([]);
@@ -715,10 +720,9 @@ export default function StudentDashboard() {
         const json = await res.json();
         const list = Array.isArray(json?.data) ? json.data : [];
 
-        // Ajusta estos campos si en tu API cambian nombres
         const mapped: Appointment[] = list.map(mapApiCitaToAppointment);
 
-        // Separa próximas/historial
+        // Separo próximas y anteriores en base a fecha/hora fin
         const now = new Date();
         const todayYMD = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const isPast = (a: Appointment) => {
@@ -736,37 +740,33 @@ export default function StudentDashboard() {
         setUpcomingAppointments(upcoming);
         setHistoryAppointments(history);
 
-        // Inicializa prev en la primera carga (sorted)
+        // Guardo prev en primera carga
         if (prevAppointments.length === 0) {
           setPrevAppointments(mapped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
         }
-        // Update current appointments ref
+        // Referencia actual para el generador de notificaciones
         currentAppointmentsRef.current = mapped;
         appointmentsLoadedRef.current = true;
-        // FIX: Disparar generación after setting upcoming/history
-        setUpcomingAppointments(upcoming);
-        setHistoryAppointments(history);
-        // FIX: Generar notificaciones solo si storage está listo
+
+        // Genero notificaciones solo cuando storage ya está listo
         if (storageReadyRef.current) {
           generateNotifications(mapped);
         }
-        // Update prev after generation (no need to set again, done in generateNotifications)
-        console.log("Notificaciones generadas:", userNotifications.length);
-        console.log("Citas procesadas:", mapped.length);
       } catch (e) {
         console.error("Error fetching student appointments:", e);
       }
     };
 
     fetchAppointments();
-    const interval = setInterval(fetchAppointments, 60000); // Poll every 60 seconds
+    const interval = setInterval(fetchAppointments, 60000); // cada 60s
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   /* ===========================
-     Debounced search materias
+     Búsqueda de materias (debounced)
+     — Evito disparar fetch por cada tecla.
   =========================== */
   useEffect(() => {
     const debounceTimer = setTimeout(async () => {
@@ -783,10 +783,10 @@ export default function StudentDashboard() {
             }));
             setFilteredSubjects(filtered);
           } else {
+            // Si la API no está lista, intento filtrar sobre lo que ya tengo
             throw new Error("API search not available");
           }
         } catch {
-          // fallback local
           setFilteredSubjects((prev) =>
             prev.filter(
               (s) =>
@@ -804,8 +804,8 @@ export default function StudentDashboard() {
   }, [searchSubject]);
 
   /* ===========================
-
      Disponibilidades por materia
+     — Al elegir materia, traigo las disponibilidades activas.
   =========================== */
   useEffect(() => {
     if (selectedSubject) {
@@ -829,12 +829,13 @@ export default function StudentDashboard() {
     } else {
       setDisponibilidadesMateria([]);
     }
+    // Limpio selección cuando cambio de materia
     setSelectedDisp(null);
     setSelectedDate(null);
   }, [selectedSubject]);
 
   /* ===========================
-     Cargar capacidad al seleccionar fecha y disponibilidad
+     Cargar capacidad cuando ya elegí disp + fecha
   =========================== */
   useEffect(() => {
     if (!selectedDisp || !selectedDate) return;
@@ -842,7 +843,8 @@ export default function StudentDashboard() {
   }, [selectedDisp, selectedDate]);
 
   /* ===========================
-     Cargar datos generales
+     Cargar catálogos (materias/monitores) y datos del usuario
+     — Armo mapas útiles (materia -> monitores) y lleno tarjetas.
   =========================== */
   useEffect(() => {
     const loadData = async () => {
@@ -858,7 +860,7 @@ export default function StudentDashboard() {
             credits: subject.credits,
           }));
 
-          // Disponibilidades para mapear materias con monitores
+          // Disponibilidades para saber qué materias sí tienen monitor
           const allDispRes = await fetch(`${API_BASE}/disponibilidades`);
           if (allDispRes.ok) {
             const dispData = await allDispRes.json();
@@ -873,18 +875,19 @@ export default function StudentDashboard() {
             setSubjects(availableSubjects);
             setSubjectMonitorMap(map);
           } else {
+            // Si falla, muestro todas las materias disponibles
             setSubjects(allSubjects);
           }
         }
 
-        // Monitores
+        // Monitores (si tu API los tiene aparte)
         const monitorsRes = await fetch(`${API_BASE}/monitors`);
         if (monitorsRes.ok) setMonitors(await monitorsRes.json());
 
-        // Slots (se llenan al elegir materia)
+        // Limpio slots (se recalculan al elegir materia)
         setAvailableSlots([]);
 
-        // Citas y usuario completos (para “home” y “settings”)
+        // Citas y usuario (para home y settings)
         if (userId) {
           const appointmentsRes = await fetch(`${API_BASE}/citas?estudiante_id=${userId}`);
           if (appointmentsRes.ok) {
@@ -928,9 +931,7 @@ export default function StudentDashboard() {
           }
         }
 
-       
-
-        // Cargar + purgar notificaciones existentes
+        // Notificaciones: purgo recordatorios viejos para no confundir
         if (userId) {
           const cached = loadNotificationsForUser(userId);
           const purged = cached.filter((n) => {
@@ -957,7 +958,7 @@ export default function StudentDashboard() {
   }, [userId]);
 
   /* ===========================
-     Utilidades varias existentes
+     Utilidades varias (fechas, colores, etc.)
   =========================== */
   const weekdayToIndex: Record<string, number> = {
     domingo: 0,
@@ -968,6 +969,8 @@ export default function StudentDashboard() {
     viernes: 5,
     sabado: 6,
   };
+
+  // Slot único cuando la disponibilidad es una franja fija
   const getSingleTimeSlot = (): TimeSlot[] => {
     if (!selectedDate || !selectedDisp) return [];
     return [
@@ -981,6 +984,8 @@ export default function StudentDashboard() {
       },
     ];
   };
+
+  // Dibujo calendario mensual con reglas básicas (pasado/deshabilitado, hoy, etc.)
   const generateCalendarDays = () => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -1013,6 +1018,8 @@ export default function StudentDashboard() {
 
     return days;
   };
+
+  // Colores/íconos por estado de la cita
   const getStatusColor = (status: string) => {
     switch (status) {
       case "confirmada":
@@ -1041,8 +1048,11 @@ export default function StudentDashboard() {
         return <AlertCircle className="h-4 w-4" />;
     }
   };
+
+  // Valido si ya se puede confirmar (materia + disp + fecha)
   const canBookAppointment = () => selectedSubject !== null && selectedDisp !== null && selectedDate !== null;
 
+  // Crear cita (POST) con validaciones simples y refresco de listas
   const handleBookAppointment = async () => {
     if (!selectedDisp || !userId || !selectedDate) return;
     try {
@@ -1107,6 +1117,7 @@ export default function StudentDashboard() {
     }
   };
 
+  // Limpio el formulario de agendamiento
   const resetBookingForm = () => {
     setSearchSubject("");
     setFilteredSubjects([]);
@@ -1116,6 +1127,7 @@ export default function StudentDashboard() {
     setSelectedDate(null);
   };
 
+  // Cancelar cita (PUT) y refrescar listas + notificaciones
   const handleCancelAppointment = async (appointment: Appointment) => {
     try {
       const res = await fetch(`${API_BASE}/citas/${appointment.id}`, {
@@ -1176,12 +1188,14 @@ export default function StudentDashboard() {
     }
   };
 
+  // Abro modal para modificar solo la fecha de una cita
   const handleModifyAppointment = async (appointment: Appointment) => {
     setSelectedAppointment(appointment);
     setNewDate(new Date(appointment.date));
     setModifyDia(appointment.disponibilidad_id ? null : null);
     setShowModifyDialog(true);
 
+    // Si la cita está ligada a una disponibilidad con día específico, lo traigo
     if (appointment.disponibilidad_id) {
       try {
         const dispRes = await fetch(`${API_BASE}/disponibilidades/${appointment.disponibilidad_id}`);
@@ -1195,9 +1209,11 @@ export default function StudentDashboard() {
     }
   };
 
+  // Guardar cambios de fecha (PATCH)
   const handleSaveModifiedAppointment = async () => {
     if (!selectedAppointment || !newDate || !userId) return;
 
+    // Validaciones simples para no dejar mover a la misma fecha o al pasado
     const originalDate = new Date(selectedAppointment.date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1211,6 +1227,7 @@ export default function StudentDashboard() {
       return;
     }
 
+    // Evito conflicto con otra cita misma fecha/hora/monitor
     const allAppointments = [...upcomingAppointments, ...historyAppointments];
     const hasConflict = allAppointments.some(
       (apt) =>
@@ -1228,7 +1245,7 @@ export default function StudentDashboard() {
     try {
       let payload: any = { fecha_cita: newDate.toISOString().split("T")[0] };
 
-      // Si requieres buscar nueva disponibilidad, aquí iría la lógica (omitida)
+      // Si en tu API te exige cambiar disponibilidad, aquí iría la lógica extra
       const res = await fetch(`${API_BASE}/citas/${selectedAppointment.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1244,6 +1261,7 @@ export default function StudentDashboard() {
           location: responseData.data.ubicacion || selectedAppointment.location,
         };
 
+        // Reconstruyo las listas y vuelvo a separar futuras/historial
         const pool = [...upcomingAppointments, ...historyAppointments].filter((a) => a.id !== selectedAppointment.id);
         pool.push(updatedAppointment);
 
@@ -1267,6 +1285,7 @@ export default function StudentDashboard() {
 
         generateNotifications(pool);
 
+        // Cierro modal y limpio estados
         setShowModifyDialog(false);
         setSelectedAppointment(null);
         setNewDate(null);
@@ -1283,8 +1302,7 @@ export default function StudentDashboard() {
     }
   };
 
-
-
+  // Cambio de contraseña (PATCH) validando confirmación
   const handleChangePassword = async () => {
     if (newPassword !== confirmPassword) {
       alert("Las contraseñas no coinciden");
@@ -1313,6 +1331,7 @@ export default function StudentDashboard() {
     }
   };
 
+  // Helpers de tiempo/duración
   const parseHHMM = (t: string) => {
     const [h, m] = t.split(":").map(Number);
     const d = new Date();
@@ -1325,7 +1344,7 @@ export default function StudentDashboard() {
     return eh * 60 + em - (sh * 60 + sm);
   };
 
-  // Derivados y filtros existentes
+  // Derivados para comparar contra hoy
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const isPastAppointment = (apt: Appointment) => {
@@ -1340,6 +1359,7 @@ export default function StudentDashboard() {
   };
   const allAppointments = [...upcomingAppointments, ...historyAppointments];
 
+  // Búsqueda + filtro por estado para las listas de "Mis Citas"
   const filteredUpcomingAppointments = upcomingAppointments.filter((appointment) => {
     const matchesSearch =
       appointment.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1355,6 +1375,7 @@ export default function StudentDashboard() {
     return matchesSearch && matchesFilter;
   });
 
+  // Normalizo fecha segura y rango por período (mes actual, pasado, semestre)
   const normalizeDate = (dateStr: string) => {
     if (!dateStr) return null;
     const date = new Date(dateStr);
@@ -1402,6 +1423,7 @@ export default function StudentDashboard() {
       return b.time.localeCompare(a.time);
     });
 
+  // Stats rápidos para tarjetas
   const stats = {
     totalSessions: historyAppointments.filter((apt) => apt.status === "completada").length,
     totalHours: historyAppointments.filter((apt) => apt.status === "completada").reduce((sum, apt) => sum + (apt.duration || 0), 0) / 60,
@@ -1426,7 +1448,7 @@ export default function StudentDashboard() {
       <div className="flex w-full min-h-screen bg-gray-50 overflow-hidden">
         <AppSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         <SidebarInset className="flex-1 w-full min-h-screen bg-gray-50">
-          {/* Header */}
+          {/* Header superior con título contextual y accesos rápidos */}
           <header className="bg-white border-b border-gray-200 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -1452,12 +1474,14 @@ export default function StudentDashboard() {
               </div>
               {activeTab === "home" && (
                 <div className="flex gap-2">
+                  {/* Si el usuario también tiene rol de monitor, muestro acceso directo */}
                   {currentUser?.roles && currentUser.roles.includes('MONITOR') && (
                     <Button size="sm" variant="outline" onClick={() => router.push('/monitor-dashboard')}>
                       <User className="h-4 w-4 mr-2" />
                       Monitor
                     </Button>
                   )}
+                  {/* Acceso a notificaciones con contador */}
                   <Button
                     size="sm"
                     className="bg-red-800 hover:bg-red-900 relative"
@@ -1487,14 +1511,12 @@ export default function StudentDashboard() {
             </div>
           </header>
 
-
-
-          {/* Main Content */}
+          {/* Contenido principal por pestaña */}
           <main className="p-6">
-            {/* Home Tab */}
+            {/* HOME */}
             {activeTab === "home" && (
               <div className="space-y-6">
-                {/* Quick Actions */}
+                {/* Tarjetas rápidas */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Card className="border-l-4 border-l-red-800">
                     <CardContent className="p-4">
@@ -1521,7 +1543,7 @@ export default function StudentDashboard() {
                   </Card>
                 </div>
 
-                {/* Agendar Nueva Monitoría */}
+                {/* Acceso rápido a agendar */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1538,7 +1560,7 @@ export default function StudentDashboard() {
                   </CardContent>
                 </Card>
 
-                {/* Próximas Citas */}
+                {/* Próximas citas (hasta 4) */}
                 <Card>
                   <CardHeader>
                     <CardTitle>Próximas Citas</CardTitle>
@@ -1608,13 +1630,13 @@ export default function StudentDashboard() {
               </div>
             )}
 
-            {/* Agendar cita tab */}
+            {/* AGENDAR */}
             {activeTab === "booking" && (
               <div className="max-w-6xl mx-auto">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Main Form */}
+                  {/* Formulario principal */}
                   <div className="lg:col-span-2">
-                    {/* Subject and Availability Selection */}
+                    {/* Selección de materia y disponibilidad */}
                     <Card>
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
@@ -1624,7 +1646,7 @@ export default function StudentDashboard() {
                         <CardDescription>Busca una materia y elige una disponibilidad activa</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        {/* Search Input */}
+                        {/* Búsqueda de materia */}
                         <div className="relative">
                           <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                           <Input
@@ -1635,7 +1657,7 @@ export default function StudentDashboard() {
                           />
                         </div>
 
-                        {/* Filtered Subjects */}
+                        {/* Lista filtrada de materias con selección */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto">
                           {subjects.filter(subject =>
                             subject.name.toLowerCase().includes(searchSubject.toLowerCase()) ||
@@ -1671,7 +1693,7 @@ export default function StudentDashboard() {
                           ))}
                         </div>
 
-                        {/* Disponibilidades for selected subject */}
+                        {/* Disponibilidades activas de la materia seleccionada */}
                         {selectedSubject && (
                           <div className="space-y-4">
                             <h4 className="font-medium text-gray-900">Disponibilidades activas para {selectedSubject.name}</h4>
@@ -1726,7 +1748,7 @@ export default function StudentDashboard() {
                       </CardContent>
                     </Card>
 
-                    {/* Date and Time Selection */}
+                    {/* Selección de fecha/horario (calendario básico) */}
                     {selectedDisp && (
                       <Card>
                         <CardHeader>
@@ -1737,7 +1759,7 @@ export default function StudentDashboard() {
                           <CardDescription>Elige el día y horario que mejor se adapte a tu agenda</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                          {/* Calendar */}
+                          {/* Calendario mensual con navegación */}
                           <div>
                             <div className="flex items-center justify-between mb-4">
                               <h3 className="font-medium text-gray-900">
@@ -1802,7 +1824,7 @@ export default function StudentDashboard() {
                     )}
                   </div>
 
-                  {/* Summary Sidebar */}
+                  {/* Resumen lateral y confirmación */}
                   <div className="space-y-6">
                     <Card className="sticky top-6">
                       <CardHeader>
@@ -1859,6 +1881,7 @@ export default function StudentDashboard() {
                           <span>{selectedDisp?.ubicacion || "Aula por asignar"}</span>
                         </div>
 
+                        {/* Cupos de la fecha seleccionada */}
                         {selectedDisp && selectedDate && (
                           <div className="flex items-center gap-2 text-sm">
                             {isLoadingCapacity ? (
@@ -1886,6 +1909,7 @@ export default function StudentDashboard() {
                           </div>
                         )}
 
+                        {/* Botón Confirmar, deshabilitado si no hay cupos */}
                         {canBookAppointment() && (
                           <div className="border-t pt-4">
                             <Button
@@ -1912,10 +1936,10 @@ export default function StudentDashboard() {
               </div>
             )}
 
-            {/* Appointments Tab */}
+            {/* MIS CITAS */}
             {activeTab === "appointments" && (
               <div className="space-y-6">
-                {/* Search and Filters */}
+                {/* Buscador + filtros */}
                 <div className="flex items-center gap-4">
                   <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
@@ -1942,14 +1966,14 @@ export default function StudentDashboard() {
                   </DropdownMenu>
                 </div>
 
-                {/* Tabs */}
+                {/* Tabs Próximas / Anteriores */}
                 <Tabs defaultValue="upcoming" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-2 max-w-md">
                     <TabsTrigger value="upcoming">Próximas ({filteredUpcomingAppointments.length})</TabsTrigger>
                     <TabsTrigger value="past">Anteriores ({filteredPastAppointments.length})</TabsTrigger>
                   </TabsList>
 
-                  {/* Upcoming Appointments */}
+                  {/* Próximas */}
                   <TabsContent value="upcoming" className="space-y-4">
                     {filteredUpcomingAppointments.length === 0 ? (
                       <Card>
@@ -1979,7 +2003,6 @@ export default function StudentDashboard() {
                           <CardContent className="p-6">
                             <div className="flex items-start justify-between">
                               <div className="flex items-start gap-4">
-                                
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 mb-1">
                                     <h3 className="font-medium text-gray-900">{appointment.subject}</h3>
@@ -2043,7 +2066,7 @@ export default function StudentDashboard() {
                     )}
                   </TabsContent>
 
-                  {/* Past Appointments */}
+                  {/* Anteriores */}
                   <TabsContent value="past" className="space-y-4">
                     {filteredPastAppointments.length === 0 ? (
                       <Card>
@@ -2094,6 +2117,7 @@ export default function StudentDashboard() {
                               </div>
                             </div>
 
+                            {/* Bloques opcionales si existen comentarios/notas */}
                             {appointment.feedback && (
                               <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                                 <p className="text-sm text-gray-700">
@@ -2118,10 +2142,10 @@ export default function StudentDashboard() {
               </div>
             )}
 
-            {/* History Tab */}
+            {/* HISTORIAL */}
             {activeTab === "history" && (
               <div className="space-y-6">
-                {/* Stats Cards */}
+                {/* Tarjetas de KPIs */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Card className="border-l-4 border-l-green-600">
                     <CardContent className="p-4">
@@ -2148,7 +2172,7 @@ export default function StudentDashboard() {
                   </Card>
                 </div>
 
-                {/* Filters */}
+                {/* Filtros de historial */}
                 <Card>
                   <CardContent className="p-4">
                     <div className="flex items-center gap-4">
@@ -2176,7 +2200,7 @@ export default function StudentDashboard() {
                   </CardContent>
                 </Card>
 
-                {/* History List */}
+                {/* Lista del historial con orden y chips de temas si existen */}
                 <div className="space-y-4">
                   {filteredHistoryAppointments.length === 0 ? (
                     <Card>
@@ -2192,7 +2216,6 @@ export default function StudentDashboard() {
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
                             <div className="flex items-start gap-4">
-                              
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-1">
                                   <h3 className="font-medium text-gray-900">{appointment.subject}</h3>
@@ -2228,7 +2251,6 @@ export default function StudentDashboard() {
                               <Badge className={getStatusColor(appointment.status)}>
                                 {appointment.status === "completada" ? "Completada" : appointment.status}
                               </Badge>
-
                             </div>
                           </div>
 
@@ -2255,7 +2277,7 @@ export default function StudentDashboard() {
               </div>
             )}
             
-            {/* NOTIFICACIONES — UI (respeta tu layout actual) */}
+            {/* NOTIFICACIONES */}
             {activeTab === "notifications" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -2301,7 +2323,7 @@ export default function StudentDashboard() {
 
                 <div className="space-y-4">
                   {(() => {
-                    // FIX: Ordenar notificaciones: primero no leídas, luego leídas, ambas por timestamp descendente
+                    // Orden: primero sin leer, luego leídas; dentro de cada grupo, más recientes primero
                     const filtered = userNotifications
                       .filter((n) => {
                         if (notificationFilter === "all") return true;
@@ -2310,7 +2332,7 @@ export default function StudentDashboard() {
                       })
                       .sort((a, b) => {
                         if (a.read !== b.read) {
-                          return a.read ? 1 : -1; // no leídas primero
+                          return a.read ? 1 : -1;
                         }
                         return (b.timestamp || new Date(b.date).getTime()) - (a.timestamp || new Date(a.date).getTime());
                       });
@@ -2387,9 +2409,7 @@ export default function StudentDashboard() {
               </div>
             )}
 
-
-
-            {/* Configuracion */}
+            {/* CONFIGURACIÓN */}
             {activeTab === "settings" && (
               <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="profile" className="space-y-6">
@@ -2397,7 +2417,7 @@ export default function StudentDashboard() {
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
                   </TabsList>
 
-                  {/* Profile Tab */}
+                  {/* Perfil (solo lectura aquí) */}
                   <TabsContent value="profile" className="space-y-6">
                     <Card>
                       <CardHeader>
@@ -2405,9 +2425,7 @@ export default function StudentDashboard() {
                         <CardDescription>Actualiza tu información de perfil y datos académicos</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-6">
-                        
-
-                        {/* Personal Info */}
+                        {/* Datos del perfil: bloqueados para evitar cambios aquí */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="firstName">Nombres</Label>
@@ -2437,10 +2455,7 @@ export default function StudentDashboard() {
                           </div>
                         </div>
 
-                        
-
-                        
-
+                        {/* Acciones de seguridad */}
                         <div className="flex gap-2">
                           <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
                             <Shield className="h-4 w-4 mr-2" />
@@ -2450,7 +2465,6 @@ export default function StudentDashboard() {
                       </CardContent>
                     </Card>
                   </TabsContent>
-
                 </Tabs>
               </div>
             )}
@@ -2458,11 +2472,7 @@ export default function StudentDashboard() {
         </SidebarInset>
       </div>
 
-
-
-      
-
-      {/* Modify Appointment Dialog */}
+      {/* MODAL: Modificar fecha de cita */}
       <Dialog open={showModifyDialog} onOpenChange={setShowModifyDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -2472,7 +2482,7 @@ export default function StudentDashboard() {
 
           {selectedAppointment && (
             <div className="space-y-6">
-              {/* Read-only Summary */}
+              {/* Resumen sólo lectura para saber qué estoy modificando */}
               <div className="p-4 bg-gray-50 rounded-lg space-y-3">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -2512,7 +2522,7 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              {/* Date Picker */}
+              {/* Selector de fecha con validación simple */}
               <div className="space-y-2">
                 <Label htmlFor="newDate">Nueva fecha</Label>
                 <Input
@@ -2567,11 +2577,7 @@ export default function StudentDashboard() {
         </DialogContent>
       </Dialog>
 
-      
-
-      
-
-      {/* Cambiar contraseña */}
+      {/* MODAL: Cambiar contraseña */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
         <DialogContent>
           <DialogHeader>
@@ -2632,7 +2638,6 @@ export default function StudentDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       
     </SidebarProvider>
   )

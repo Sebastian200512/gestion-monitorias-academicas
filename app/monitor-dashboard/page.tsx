@@ -1,7 +1,11 @@
 "use client"
+// ===============================
+// Panel de Monitor (Next.js + shadcn/ui)
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
+
+// --- Componentes UI (shadcn/ui) ---
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -34,8 +38,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+
+// Helpers
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
+
+// --- Layout lateral (sidebar) ---
 import {
   Sidebar,
   SidebarContent,
@@ -47,6 +55,8 @@ import {
   SidebarTrigger,
   SidebarInset,
 } from "@/components/ui/sidebar"
+
+// --- Iconos (lucide-react) ---
 import {
   Calendar,
   Clock,
@@ -81,11 +91,20 @@ import {
   Filter,
 } from "lucide-react"
 
+// ===============================
+// Sidebar del monitor
+// - Muestra navegación por secciones (Inicio, Citas, etc.)
+// - Botón de cerrar sesión (redirecciona al login)
+// ===============================
 function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (tab: string) => void }) {
   const router = useRouter()
+
+  // Cerrar sesión: por ahora solo redirige (la API de logout real va aparte)
   const handleLogout = () => {
     router.replace("/login-dashboard")
   }
+
+  // Menú lateral: título, icono y valor que activa la pestaña
   const menuItems = [
     { title: "Inicio", icon: Home, value: "home" },
     { title: "Mis Citas", icon: CalendarDays, value: "appointments" },
@@ -97,6 +116,7 @@ function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setAct
 
   return (
     <Sidebar className="border-r border-gray-200">
+      {/* Encabezado del sidebar (branding del módulo) */}
       <SidebarHeader className="border-b border-gray-200 p-4 bg-red-800">
         <div className="flex items-center gap-3">
           <div className="bg-amber-600 p-2 rounded-lg">
@@ -109,6 +129,7 @@ function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setAct
         </div>
       </SidebarHeader>
 
+      {/* Cuerpo del sidebar: menú + botón de salir */}
       <SidebarContent className="p-4">
         <SidebarMenu>
           {menuItems.map((item) => (
@@ -126,6 +147,7 @@ function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setAct
           ))}
         </SidebarMenu>
 
+        {/* Sección inferior: cerrar sesión */}
         <div className="mt-auto pt-4 border-t border-gray-200">
           <SidebarMenu>
             <SidebarMenuItem>
@@ -146,6 +168,9 @@ function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setAct
   )
 }
 
+// ===============================
+// Tipos/Interfaces del dominio
+// ===============================
 interface MonitorAppointment {
   id: string
   student: {
@@ -168,10 +193,10 @@ interface MonitorAppointment {
 }
 
 interface AvailabilitySlot {
-  ids: string[]
-  day: string
-  startTime: string
-  endTime: string
+  ids: string[]        // Múltiples IDs unidos (slots agrupados)
+  day: string          // Día de la semana
+  startTime: string    // HH:mm (24h)
+  endTime: string      // HH:mm (24h)
   location: string
   subjects: string[]
   isActive: boolean
@@ -182,15 +207,19 @@ interface Notification {
   type: "appointment_created" | "appointment_confirmed" | "appointment_cancelled" | "appointment_completed" | "appointment_reminder" | "system" | "monitor_message"
   title: string
   message: string
-  date: string
+  date: string          // ISO string
   read: boolean
   appointmentId?: string
   actionUrl?: string
 }
 
+// Base API para fetch (ajústalo si cambias rutas en Next API Routes)
 const API_BASE = "/api"
 
-// ---- Helpers de Storage por usuario (NOTIFICACIONES) ----
+// ===============================
+// Helpers de localStorage por usuario (para notificaciones)
+// guardamos: lista de notificaciones y llaves de "ya notificado"
+// ===============================
 const notifStorageKey = (userId: number) => `monitor_notifications_${userId}`
 const notifiedKeysStorageKey = (userId: number) => `monitor_notified_keys_${userId}`
 
@@ -221,35 +250,55 @@ function saveNotifiedKeysForUser(userId: number, keys: Set<string>) {
   localStorage.setItem(notifiedKeysStorageKey(userId), JSON.stringify(Array.from(keys)))
 }
 
+// ===============================
+// Componente principal: MonitorDashboard
+// Contiene tabs: home, appointments, availability, reports, notifications, settings
+// Maneja fetch de perfil, materias, citas y disponibilidades
+// ===============================
 export default function MonitorDashboard() {
   const router = useRouter()
   const { toast } = useToast()
+
+  // --- Estado de navegación/UI ---
   const [activeTab, setActiveTab] = useState("home")
   const [showAvailabilityDialog, setShowAvailabilityDialog] = useState(false)
-  const [showAppointmentDialog, setShowAppointmentDialog] = useState(false)
+  const [showAppointmentDialog, setShowAppointmentDialog] = useState(false) // (Reservado: crear cita manual)
   const [showPasswordDialog, setShowPasswordDialog] = useState(false)
+
+  // --- Estado de selección y diálogos ---
   const [selectedAppointment, setSelectedAppointment] = useState<MonitorAppointment | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [showStudentProfileDialog, setShowStudentProfileDialog] = useState(false)
   const [selectedStudentProfile, setSelectedStudentProfile] = useState<any>(null)
   const [showAppointmentDetailsDialog, setShowAppointmentDetailsDialog] = useState(false)
   const [selectedAppointmentDetails, setSelectedAppointmentDetails] = useState<MonitorAppointment | null>(null)
+
+  // --- Estado de seguridad (cambio contraseña) ---
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+
+  // --- Usuario logueado (localStorage.user) ---
   const [userId, setUserId] = useState<number | null>(null)
+
+  // --- Buscador y filtros de citas ---
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
+
+  // --- Control de requests en vuelo para evitar doble clic ---
   const [inFlight, setInFlight] = useState<Record<string, boolean>>({})
+
+  // --- Filtro de notificaciones ---
   const [notificationFilter, setNotificationFilter] = useState("all")
 
-  // Notifications states
+  // --- Notificaciones del usuario (persistidas) ---
   const [userNotifications, setUserNotifications] = useState<Notification[]>([])
   const [prevAppointments, setPrevAppointments] = useState<MonitorAppointment[]>([])
   const [notifiedKeys, setNotifiedKeys] = useState<Set<string>>(new Set())
   const [loadedNotifState, setLoadedNotifState] = useState(false)
   const [loadedAppointments, setLoadedAppointments] = useState(false)
 
+  // --- Preferencias (más adelante se puede conectar a la API) ---
   const [notifications, setNotifications] = useState({
     emailReminders: false,
     smsReminders: false,
@@ -263,9 +312,8 @@ export default function MonitorDashboard() {
     showPhone: false,
     allowDirectMessages: false,
   })
-  
 
-  // Monitor profile data
+  // --- Datos del monitor (perfil simplificado) ---
   const [monitorData, setMonitorData] = useState({
     firstName: "",
     lastName: "",
@@ -275,13 +323,13 @@ export default function MonitorDashboard() {
     code: "",
   })
 
-  // Assigned subject
+  // --- Materia asignada (única) ---
   const [assignedSubject, setAssignedSubject] = useState<any>(null)
 
-  // Availability
+  // --- Disponibilidades agrupadas (cada card puede representar varios IDs) ---
   const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([])
 
-  // New availability
+  // --- Formulario de nueva disponibilidad ---
   const [newAvailability, setNewAvailability] = useState({
     day: "",
     startTime: "",
@@ -290,11 +338,18 @@ export default function MonitorDashboard() {
     subjects: [] as string[],
   })
 
+  // --- Edición de disponibilidad ---
   const [editingSlot, setEditingSlot] = useState<AvailabilitySlot | null>(null)
   const [availableSubjects, setAvailableSubjects] = useState<any[]>([])
+
+  // --- Citas del monitor ---
   const [appointments, setAppointments] = useState<MonitorAppointment[]>([])
 
-  // Helpers de tiempo
+  // ===============================
+  // Helpers de tiempo/hora
+  // ===============================
+
+  // Convierte "HH:mm" 24h → formato local "h:mm a"
   const formatTime12Hour = (time24: string) => {
     if (!time24) return ""
     const [hours, minutes] = time24.split(':').map(Number)
@@ -307,6 +362,7 @@ export default function MonitorDashboard() {
     }).toLowerCase()
   }
 
+  // Normaliza un string de fecha a Date (sin hora)
   const normalizeDate = (dateStr: string) => {
     if (!dateStr) return null
     const date = new Date(dateStr)
@@ -314,6 +370,7 @@ export default function MonitorDashboard() {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate())
   }
 
+  // Suma 2 horas a una hora "HH:mm" (regla de negocio: slot = 2h)
   const addTwoHours = (time24: string) => {
     if (!time24) return ""
     const [h, m] = time24.split(':').map(Number)
@@ -321,6 +378,7 @@ export default function MonitorDashboard() {
     return `${newHours.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
   }
 
+  // Cuando cambia la hora de inicio, auto-calculamos la fin
   const handleStartTimeChange = (startTime: string) => {
     const endTime = addTwoHours(startTime)
     setNewAvailability(prev => ({
@@ -330,7 +388,9 @@ export default function MonitorDashboard() {
     }))
   }
 
-  // Load user + materias
+  // ===============================
+  // Efecto: Cargar usuario (localStorage) y materias disponibles
+  // ===============================
   useEffect(() => {
     const storedUser = localStorage.getItem("user")
     if (storedUser) {
@@ -348,7 +408,7 @@ export default function MonitorDashboard() {
       })
     }
 
-    // Fetch available subjects
+    // Traemos las materias para mostrar info contextual (aunque la asignación es única)
     const fetchSubjects = async () => {
       try {
         const response = await fetch(`${API_BASE}/materias`)
@@ -363,7 +423,9 @@ export default function MonitorDashboard() {
     fetchSubjects()
   }, [])
 
-  // Cargar notificaciones y notifiedKeys cuando ya hay userId
+  // ===============================
+  // Efecto: cargar notificaciones guardadas y llaves (cuando ya hay userId)
+  // ===============================
   useEffect(() => {
     if (!userId) return
     setUserNotifications(loadNotificationsForUser(userId))
@@ -371,12 +433,14 @@ export default function MonitorDashboard() {
     setLoadedNotifState(true)
   }, [userId])
 
-  // Fetch data del monitor
+  // ===============================
+  // Efecto: traer perfil, materia asignada, citas y disponibilidades
+  // ===============================
   useEffect(() => {
     const fetchData = async () => {
       if (!userId) return
       try {
-        // Perfil (no bloquea si 404)
+        // Perfil (si está disponible en API; si no, seguimos con lo del localStorage)
         try {
           const profileResponse = await fetch(`${API_BASE}/usuarios/${userId}`)
           if (profileResponse.ok) {
@@ -396,7 +460,7 @@ export default function MonitorDashboard() {
           console.error("Error fetching profile:", e)
         }
 
-        // Materia asignada
+        // Materia asignada única (definida por admin)
         try {
           const assignedSubjectResponse = await fetch(`${API_BASE}/usuarios/${userId}/materia-asignada`)
           if (assignedSubjectResponse.ok) {
@@ -409,12 +473,13 @@ export default function MonitorDashboard() {
           setAssignedSubject(null)
         }
 
-        // Citas
+        // Citas del monitor
         try {
           const appointmentsResponse = await fetch(`${API_BASE}/citas?monitor_id=${userId}`)
           if (appointmentsResponse.ok) {
             const appointmentsJson = await appointmentsResponse.json()
             if (appointmentsJson.ok && appointmentsJson.data) {
+              // Mapeo al formato que usa el frontend
               const mapped: MonitorAppointment[] = appointmentsJson.data.map((apt: any) => ({
                 id: apt.id.toString(),
                 student: {
@@ -448,7 +513,7 @@ export default function MonitorDashboard() {
           setLoadedAppointments(true)
         }
 
-        // Disponibilidades
+        // Disponibilidades del monitor (ya agrupadas en backend)
         try {
           const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`)
           if (availabilityResponse.ok) {
@@ -457,7 +522,6 @@ export default function MonitorDashboard() {
           }
         } catch {}
 
-        
       } catch (error) {
         console.error("Error fetching data:", error)
       }
@@ -465,10 +529,10 @@ export default function MonitorDashboard() {
     fetchData()
   }, [userId])
 
-  // Disparar generación de notificaciones cuando:
-  // - Ya se cargaron desde storage (loadedNotifState)
-  // - Ya se cargaron citas (loadedAppointments)
-  // - Hay citas
+  // ===============================
+  // Efecto: generar notificaciones automáticas
+  // - Solo cuando ya cargamos storage y citas
+  // ===============================
   useEffect(() => {
     if (!userId) return
     if (!loadedNotifState || !loadedAppointments) return
@@ -477,9 +541,14 @@ export default function MonitorDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, loadedNotifState, loadedAppointments, appointments])
 
-  const addTwoHoursMemo = addTwoHours // (para evitar recreación innecesaria)
+  // Alias para no recrear funciones (si hiciera falta memorizar)
+  const addTwoHoursMemo = addTwoHours
 
-  // Availability handlers
+  // ===============================
+  // Handlers de Disponibilidad (CRUD)
+  // ===============================
+
+  // Crear nuevo horario (2h fijas)
   const handleAddAvailability = async () => {
     if (!newAvailability.day || !newAvailability.startTime || !newAvailability.endTime || !newAvailability.location || !assignedSubject) {
       toast({ title: "Error", description: "Todos los campos son requeridos", variant: "destructive" })
@@ -502,11 +571,13 @@ export default function MonitorDashboard() {
       })
 
       if (response.ok) {
+        // Refrescamos listado
         const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`)
         if (availabilityResponse.ok) {
           const availabilityData = await availabilityResponse.json()
           setAvailabilitySlots(availabilityData)
         }
+        // Limpiar formulario
         setShowAvailabilityDialog(false)
         setNewAvailability({
           day: "",
@@ -525,6 +596,7 @@ export default function MonitorDashboard() {
     }
   }
 
+  // Abrir modal de edición con datos del slot
   const handleEditAvailability = (slot: AvailabilitySlot) => {
     setEditingSlot(slot)
     setNewAvailability({
@@ -537,6 +609,7 @@ export default function MonitorDashboard() {
     setShowAvailabilityDialog(true)
   }
 
+  // Guardar cambios del slot (patch por cada id agrupado)
   const handleSaveEditAvailability = async () => {
     if (!editingSlot || !newAvailability.day || !newAvailability.startTime || !newAvailability.endTime || !newAvailability.location) {
       toast({ title: "Error", description: "Todos los campos son requeridos", variant: "destructive" })
@@ -560,11 +633,13 @@ export default function MonitorDashboard() {
         }
       }
 
+      // Refrescamos slots
       const availabilityResponse = await fetch(`${API_BASE}/monitor/availability?userId=${userId}`)
       if (availabilityResponse.ok) {
         const availabilityData = await availabilityResponse.json()
         setAvailabilitySlots(availabilityData)
       }
+      // Limpiamos estado del modal
       setShowAvailabilityDialog(false)
       setEditingSlot(null)
       setNewAvailability({
@@ -581,6 +656,7 @@ export default function MonitorDashboard() {
     }
   }
 
+  // Eliminar slot(s). Si hay conflicto (409) avisamos y no eliminamos.
   const handleDeleteAvailability = async (slot: AvailabilitySlot) => {
     if (!confirm("¿Eliminar definitivamente este horario? Esta acción no se puede deshacer.")) return;
 
@@ -598,7 +674,6 @@ export default function MonitorDashboard() {
 
           console.warn("⚠️ Conflicto detectado al eliminar disponibilidad:", payload);
 
-          // Solo aviso, NO desactivar automáticamente
           toast({
             title: "No se puede eliminar",
             description:
@@ -621,7 +696,7 @@ export default function MonitorDashboard() {
         }
       }
 
-      // Todos OK → quita del estado
+      // Si todo OK, quitamos del estado el bloque que coincida con los datos del slot
       setAvailabilitySlots(prev =>
         prev.filter(s =>
           s.day !== slot.day ||
@@ -642,6 +717,9 @@ export default function MonitorDashboard() {
     }
   };
 
+  // ===============================
+  // Helpers de estado de cita (badge + icono)
+  // ===============================
   const getStatusColor = (status: string) => {
     switch (status) {
      case "confirmada":
@@ -672,7 +750,9 @@ export default function MonitorDashboard() {
     }
   }
 
-  // ---- CRUD Citas ----
+  // ===============================
+  // CRUD de Citas (acciones rápidas)
+  // ===============================
   const handleViewAppointmentDetails = (appointment: MonitorAppointment) => {
     setSelectedAppointmentDetails(appointment)
     setShowAppointmentDetailsDialog(true)
@@ -738,7 +818,11 @@ export default function MonitorDashboard() {
     }
   }
 
-  // Toggle disponibilidad
+  // ===============================
+  // Toggle de disponibilidad (activar/desactivar)
+  // - Se hace un PATCH por lote de IDs para mantener consistencia
+  // - Optimistic UI: cambiamos estado y si falla, revertimos
+  // ===============================
   const handleToggleAvailability = useCallback(async (slot: AvailabilitySlot, checked: boolean) => {
     const slotKey = slot.ids.join('.')
     if (inFlight[slotKey]) return
@@ -780,7 +864,9 @@ export default function MonitorDashboard() {
     }
   }, [availabilitySlots, userId, inFlight, toast])
 
-  // Próximas y completadas
+  // ===============================
+  // Derivados: próximas y completadas
+  // ===============================
   const upcomingAppointments = appointments.filter((apt) => {
     const now = new Date()
     const appointmentDate = new Date(apt.date)
@@ -790,8 +876,10 @@ export default function MonitorDashboard() {
     return apt.status !== "completada" &&
            (appointmentDay > today || (appointmentDay.getTime() === today.getTime() && appointmentEndTime >= now))
   }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
   const completedAppointments = appointments.filter((apt) => apt.status === "completada")
 
+  // Buscador + filtro por estado (solo para próximas)
   const filteredUpcomingAppointments = upcomingAppointments.filter((appointment) => {
     const matchesSearch =
       appointment.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -800,7 +888,9 @@ export default function MonitorDashboard() {
     return matchesSearch && matchesFilter
   })
 
-  // FIX: Merge estable de notificaciones para conservar estado "read"
+  // ===============================
+  // Notificaciones: merge estable para no perder "read"
+  // ===============================
   function mergeNotificationsById(existing: Notification[], incoming: Notification[]) {
     const map = new Map(existing.map(n => [n.id, n]))
     for (const n of incoming) {
@@ -814,11 +904,17 @@ export default function MonitorDashboard() {
     return Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }
 
-  // ---- Generación de notificaciones ----
+  // Persistencia
   const syncNotifications = (uid: number, items: Notification[]) => {
     saveNotificationsForUser(uid, items)
   }
 
+  // ===============================
+  // Generación automática de notificaciones
+  // - Citas nuevas (24h)
+  // - Cambios de estado (confirmada/cancelada/completada)
+  // - Recordatorios (≤36h antes, y se limpian si sale de ventana o se cancela)
+// ===============================
   const generateNotifications = useCallback((currentAppointments: MonitorAppointment[]) => {
     if (!userId) return
 
@@ -837,7 +933,7 @@ export default function MonitorDashboard() {
     }
 
     const removeRemindersFor = (appointmentId: string) => {
-      // FIX: No eliminar otras notificaciones al limpiar recordatorios
+      // Quitar solo recordatorios de esa cita, no toques otras notificaciones
       newNotifications = newNotifications.filter(n => !(n.type === "appointment_reminder" && n.appointmentId === appointmentId))
       const cleaned = new Set<string>()
       keys.forEach(k => {
@@ -851,10 +947,8 @@ export default function MonitorDashboard() {
       const prev = prevMap.get(apt.id)
       const startDT = new Date(`${apt.date}T${apt.time}`)
 
-      // FIX: Detectar "citas nuevas" aunque no exista estado previo
+      // Cita nueva (si no existía antes y fue creada en últimas 24h respecto a su inicio)
       if (!prev) {
-        const startDT = new Date(`${apt.date}T${apt.time}`)
-        const now = new Date()
         const hoursAgo = (now.getTime() - startDT.getTime()) / (1000 * 60 * 60)
         if (hoursAgo <= 24) {
           pushUnique({
@@ -869,12 +963,10 @@ export default function MonitorDashboard() {
         }
       }
 
-      // FIX: Manejo completo de cambios de estado
+      // Cambio de estado
       if (prev && prev.status !== apt.status) {
         if (apt.status === "cancelada") {
-          // FIX: limpiar solo recordatorios de esa cita
           removeRemindersFor(apt.id)
-
           pushUnique({
             id: `appointment_cancelled-${apt.id}`,
             type: "appointment_cancelled",
@@ -907,7 +999,7 @@ export default function MonitorDashboard() {
         }
       }
 
-      // FIX: Recordatorios solo para futuras ≤36h y limpieza segura
+      // Recordatorios: solo futuras, no canceladas, no completadas, dentro de 36h
       const msUntilStart = new Date(`${apt.date}T${apt.time}`).getTime() - Date.now()
       if (apt.status !== "cancelada" && apt.status !== "completada") {
         if (msUntilStart > 0 && msUntilStart <= THIRTY_SIX_HOURS) {
@@ -921,14 +1013,13 @@ export default function MonitorDashboard() {
             appointmentId: apt.id
           }, `reminder:${apt.id}:${new Date(apt.date).toDateString()}`)
         } else {
-          // FIX: salir de ventana → eliminar recordatorios de esa cita
+          // Si sale de ventana, limpiamos los recordatorios de esa cita
           removeRemindersFor(apt.id)
         }
       }
     }
 
     if (userId) {
-      // FIX: Persistencia en localStorage (scope por monitor)
       const merged = mergeNotificationsById(userNotifications, newNotifications)
       setUserNotifications(merged)
       saveNotificationsForUser(userId, merged)
@@ -938,10 +1029,16 @@ export default function MonitorDashboard() {
     }
   }, [userId, userNotifications, notifiedKeys, prevAppointments])
 
+  // ===============================
+  // Render
+  // ===============================
   return (
     <SidebarProvider>
       <div className="flex w-full min-h-screen bg-gray-50 overflow-hidden">
+        {/* Lateral */}
         <MonitorSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+
+        {/* Contenido principal */}
         <SidebarInset className="flex-1 w-full min-h-screen bg-gray-50">
           {/* Header */}
           <header className="bg-white border-b border-gray-200 p-4">
@@ -955,6 +1052,8 @@ export default function MonitorDashboard() {
                   </p>
                 </div>
               </div>
+
+              {/* Acceso rápido a notificaciones / switch a rol estudiante */}
               {activeTab === "home" && (
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={() => router.push('/estudiante-dashboard')}>
@@ -975,13 +1074,15 @@ export default function MonitorDashboard() {
             </div>
           </header>
 
-          {/* Main Content */}
+          {/* Main */}
           <main className="p-6">
-            {/* Home Tab */}
+
+            {/* ========= Home ========= */}
             {activeTab === "home" && (
               <div className="space-y-6">
-                {/* Stats Cards */}
+                {/* Tarjetas de métricas rápidas */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  {/* # Citas de esta semana */}
                   <Card className="border-l-4 border-l-red-800">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
@@ -1005,6 +1106,7 @@ export default function MonitorDashboard() {
                     </CardContent>
                   </Card>
 
+                  {/* Horas del mes (aprox. por diferencia HH) */}
                   <Card className="border-l-4 border-l-amber-600">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
@@ -1023,6 +1125,7 @@ export default function MonitorDashboard() {
                     </CardContent>
                   </Card>
 
+                  {/* Estudiantes únicos de la semana */}
                   <Card className="border-l-4 border-l-red-600">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
@@ -1048,7 +1151,7 @@ export default function MonitorDashboard() {
                   </Card>
                 </div>
 
-                {/* Quick Actions */}
+                {/* Acciones rápidas */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Card>
                     <CardHeader>
@@ -1149,7 +1252,7 @@ export default function MonitorDashboard() {
                   </Card>
                 </div>
 
-                {/* Recent Appointments */}
+                {/* Próximas citas (resumen) */}
                 <Card>
                   <CardHeader>
                     <CardTitle>Próximas Citas</CardTitle>
@@ -1189,7 +1292,6 @@ export default function MonitorDashboard() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                           
                             <Badge className={getStatusColor(appointment.status)}>
                               {getStatusIcon(appointment.status)}
                               <span className="ml-1 capitalize">{appointment.status}</span>
@@ -1210,7 +1312,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* mis citas */}
+            {/* ========= Mis Citas ========= */}
             {activeTab === "appointments" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -1220,7 +1322,7 @@ export default function MonitorDashboard() {
                   </div>
                 </div>
 
-                {/* Search and Filters */}
+                {/* Buscador y filtros */}
                 <div className="flex items-center gap-4">
                   <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
@@ -1247,6 +1349,7 @@ export default function MonitorDashboard() {
                   </DropdownMenu>
                 </div>
 
+                {/* Tabs de próximas/completadas/todas */}
                 <Tabs defaultValue="upcoming" className="space-y-6">
                   <TabsList className="grid w-full grid-cols-3 max-w-md">
                     <TabsTrigger value="upcoming">Próximas ({upcomingAppointments.length})</TabsTrigger>
@@ -1254,6 +1357,7 @@ export default function MonitorDashboard() {
                     <TabsTrigger value="all">Todas ({appointments.length})</TabsTrigger>
                   </TabsList>
 
+                  {/* Próximas */}
                   <TabsContent value="upcoming" className="space-y-4">
                     {(() => {
                       if (filteredUpcomingAppointments.length === 0) {
@@ -1348,6 +1452,7 @@ export default function MonitorDashboard() {
                     })()}
                   </TabsContent>
 
+                  {/* Completadas */}
                   <TabsContent value="completed" className="space-y-4">
                     {completedAppointments.map((appointment) => (
                       <Card key={appointment.id} className="opacity-90">
@@ -1376,7 +1481,6 @@ export default function MonitorDashboard() {
                                     </span>
                                   </div>
                                 </div>
-
                               </div>
                             </div>
                             <Badge className={getStatusColor(appointment.status)}>
@@ -1389,6 +1493,7 @@ export default function MonitorDashboard() {
                     ))}
                   </TabsContent>
 
+                  {/* Todas */}
                   <TabsContent value="all" className="space-y-4">
                     {appointments.map((appointment) => (
                       <Card key={appointment.id}>
@@ -1432,7 +1537,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* disponibilidades */}
+            {/* ========= Disponibilidades ========= */}
             {activeTab === "availability" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -1512,7 +1617,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* Reports Tab */}
+            {/* ========= Reportes ========= */}
             {activeTab === "reports" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -1522,7 +1627,7 @@ export default function MonitorDashboard() {
                   </div>
                 </div>
 
-                {/* Performance Stats */}
+                {/* KPIs */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <Card className="border-l-4 border-l-green-600">
                     <CardContent className="p-4">
@@ -1567,7 +1672,7 @@ export default function MonitorDashboard() {
                   </Card>
                 </div>
 
-                {/* Weekly Performance */}
+                {/* Rendimiento semanal */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1633,7 +1738,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* notificaciones */}
+            {/* ========= Notificaciones ========= */}
             {activeTab === "notifications" && (
               <div className="space-y-6">
                 {/* Header con filtros */}
@@ -1688,7 +1793,6 @@ export default function MonitorDashboard() {
                         if (notificationFilter === "unread") return !notification.read
                         return notification.type === notificationFilter
                       })
-                      // Orden: más reciente primero
                       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
                     return filteredNotifications.length === 0 ? (
@@ -1770,7 +1874,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* Configuración */}
+            {/* ========= Configuración ========= */}
             {activeTab === "settings" && (
               <div className="max-w-4xl mx-auto">
                 <Tabs defaultValue="profile" className="space-y-6">
@@ -1778,7 +1882,7 @@ export default function MonitorDashboard() {
                     <TabsTrigger value="profile">Perfil</TabsTrigger>
                   </TabsList>
 
-                  {/* Profile Tab */}
+                  {/* Perfil (solo lectura por ahora) */}
                   <TabsContent value="profile" className="space-y-6">
                     <Card>
                       <CardHeader>
@@ -1804,8 +1908,6 @@ export default function MonitorDashboard() {
                             <Label htmlFor="code">Código</Label>
                             <Input id="code" type="text" value={monitorData.code || ""} disabled />
                           </div>
-                        
-
                           <div className="space-y-2">
                             <Label htmlFor="program">Programa Académico</Label>
                             <Input id="program" type="text" value={monitorData.program || ""} disabled />
@@ -1814,7 +1916,7 @@ export default function MonitorDashboard() {
                             <Label htmlFor="semester">Semestre Actual</Label>
                             <Input id="semester" type="text" value={monitorData.semester || ""} disabled />
                           </div>
-                          </div>
+                        </div>
 
                         <div className="flex gap-2">
                           <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
@@ -1825,8 +1927,6 @@ export default function MonitorDashboard() {
                       </CardContent>
                     </Card>
                   </TabsContent>
-
-                 
                 </Tabs>
               </div>
             )}
@@ -1834,7 +1934,7 @@ export default function MonitorDashboard() {
         </SidebarInset>
       </div>
 
-      {/* agregar/editar horarios */}
+      {/* ========= Dialog: agregar/editar horarios ========= */}
       <Dialog open={showAvailabilityDialog} onOpenChange={(open) => {
         setShowAvailabilityDialog(open)
         if (!open) {
@@ -1956,7 +2056,10 @@ export default function MonitorDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Change Password Dialog */}
+      {/* ========= Dialog: cambio de contraseña (UI) =========
+          Nota: aquí solo manejamos UI y validaciones básicas.
+          La integración real debe llamar a tu endpoint de seguridad.
+      */}
       <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
         <DialogContent>
           <DialogHeader>
@@ -2016,6 +2119,7 @@ export default function MonitorDashboard() {
                 alert("Las contraseñas no coinciden")
                 return
               }
+              // Aquí deberías llamar tu endpoint de cambio de contraseña
               setShowPasswordDialog(false)
               setCurrentPassword("")
               setNewPassword("")

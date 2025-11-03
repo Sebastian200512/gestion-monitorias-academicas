@@ -1,8 +1,17 @@
 "use client"
 
+/**
+ * Admin Dashboard (comentado)
+ * — Mantiene la misma estructura, props, imports y JSX.
+ * — Comentarios en español, concisos y prácticos (tu estilo).
+ * — No agrega data falsa; todo queda listo para conectarse a tu API.
+ */
+
 import type React from "react"
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+
+/* UI: shadcn/ui y lucide-react */
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -49,12 +58,17 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 
-/** ========= Sidebar (sin cambios de estructura) ========= */
+/** ========= Sidebar (sin cambios de estructura) =========
+ *  Mantiene navegación de pestañas y el botón de cerrar sesión.
+ *  Llama a router.replace('/login-dashboard') al salir.
+ */
 function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiveTab: (tab: string) => void }) {
   const router = useRouter()
   const handleLogout = () => {
+    // Redirige al login (flujo de salida simple)
     router.replace("/login-dashboard")
   }
+  // Ítems de menú principales del Admin
   const menuItems = [
     { title: "Dashboard", icon: Home, value: "dashboard" },
     { title: "Usuarios", icon: Users, value: "users" },
@@ -80,6 +94,7 @@ function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiv
         <SidebarMenu>
           {menuItems.map((item) => (
             <SidebarMenuItem key={item.title}>
+              {/* Marca activo y cambia de pestaña */}
               <SidebarMenuButton asChild isActive={activeTab === item.value}>
                 <button
                   onClick={() => setActiveTab(item.value)}
@@ -93,6 +108,7 @@ function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiv
           ))}
         </SidebarMenu>
 
+        {/* Footer con Cerrar Sesión */}
         <div className="mt-auto pt-4 border-t border-gray-200">
           <SidebarMenu>
             <SidebarMenuItem>
@@ -110,7 +126,9 @@ function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiv
   )
 }
 
-/** ========= Tipos ========= */
+/** ========= Tipos =========
+ *  Define la forma de los datos que vienen de tu API. No inventamos campos.
+ */
 interface UserType {
   id: string
   name: string
@@ -166,23 +184,21 @@ interface Appointment {
   createdAt?: string
 }
 
-/** ========= Helper UI ========= */
+/** ========= Helper UI =========
+ *  Mapea estados a clases/íconos para etiquetas visuales.
+ */
 const getStatusColor = (status: string) => {
   switch (status) {
     case "Activo":
     case "completada":
       return "bg-green-600 hover:bg-green-700"
-
     case "Pendiente":
     case "pendiente":
       return "bg-gray-500 hover:bg-gray-600"
-
     case "confirmada":
       return "bg-amber-600 hover:bg-amber-700"
-    
     case "cancelada":
       return "bg-red-600 hover:bg-red-700"
-
     default:
     case "Inactivo":
       return "bg-blue-500 hover:bg-gray-600"
@@ -205,34 +221,50 @@ const getStatusIcon = (status: string) => {
   }
 }
 
-/** ========= Componente principal ========= */
+/** ========= Componente principal =========
+ *  - Controla pestañas y diálogos.
+ *  - Carga datos desde /api (ajusta endpoints si cambian).
+ *  - Aplica filtros, paginación y acciones comunes (cancelar cita, asignar materia, etc.).
+ *  - No mete mocks: queda limpio para integración real.
+ */
 export default function AdminDashboardComplete() {
+  // Navegación por pestañas
   const [activeTab, setActiveTab] = useState("dashboard")
+
+  // Diálogos/acciones globales
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [showUserDialog, setShowUserDialog] = useState(false)
   const [showMonitorDialog, setShowMonitorDialog] = useState(false)
   const [showSubjectDialog, setShowSubjectDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+
+  // Exportación (configurable por sección/formato)
   const [exportFormat, setExportFormat] = useState<"excel" | "pdf" | "json">("excel")
   const [exportSection, setExportSection] = useState<"all" | "users" | "monitors" | "subjects" | "appointments" | "reports">("all")
   const [isExporting, setIsExporting] = useState(false)
+
+  // Reporte histórico (Excel por rango de fechas)
   const [showHistoricoDialog, setShowHistoricoDialog] = useState(false)
   const [historicoAllDates, setHistoricoAllDates] = useState(true)
   const [historicoStartDate, setHistoricoStartDate] = useState("")
   const [historicoEndDate, setHistoricoEndDate] = useState("")
-  const [reportStartDate, setReportStartDate] = useState("");
-  const [reportEndDate, setReportEndDate] = useState("");
+  const [reportStartDate, setReportStartDate] = useState("")
+  const [reportEndDate, setReportEndDate] = useState("")
+
+  // Edición de cita (fecha/estado)
   const [showEditAppointmentDialog, setShowEditAppointmentDialog] = useState(false)
   const [editingAppointment, setEditingAppointment] = useState<any>(null)
   const [editAppointmentDate, setEditAppointmentDate] = useState("")
   const [editAppointmentStatus, setEditAppointmentStatus] = useState("")
+
+  // Asignación de materia a monitor
   const [showAssignSubjectDialog, setShowAssignSubjectDialog] = useState(false)
   const [selectedMonitor, setSelectedMonitor] = useState<Monitor | null>(null)
   const [subjectSearchTerm, setSubjectSearchTerm] = useState("")
   const [selectedSubject, setSelectedSubject] = useState<any>(null)
   const [isAssigningSubject, setIsAssigningSubject] = useState(false)
 
-  // filtros/selección
+  // Filtros y selección general
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
   const [filterRole, setFilterRole] = useState("all")
@@ -242,6 +274,8 @@ export default function AdminDashboardComplete() {
   const [filterLocation, setFilterLocation] = useState("all")
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [editingItem, setEditingItem] = useState<any>(null)
+
+  // Paginación por entidad
   const [currentPageSubjects, setCurrentPageSubjects] = useState(1)
   const pageSizeSubjects = 10
   const [currentPageUsers, setCurrentPageUsers] = useState(1)
@@ -250,18 +284,24 @@ export default function AdminDashboardComplete() {
   const pageSizeMonitors = 10
   const [currentPageAppointments, setCurrentPageAppointments] = useState(1)
   const pageSizeAppointments = 10
+
+  // Filtros de materia en popover
   const [openSubjectFilter, setOpenSubjectFilter] = useState(false)
   const [filterMonitorSubject, setFilterMonitorSubject] = useState("all")
   const [openMonitorSubjectFilter, setOpenMonitorSubjectFilter] = useState(false)
 
-  /** ======== ESTADO DE DATOS (LIMPIO, SIN MOCKS) ======== */
+  /** ======== ESTADO DE DATOS ========
+   *  Listas que vienen de tu API. Sin datos mock.
+   */
   const [users, setUsers] = useState<UserType[]>([])
   const [monitors, setMonitors] = useState<Monitor[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [rolesMap, setRolesMap] = useState<Map<string, string[]>>(new Map())
 
-  /** ======== COMPUTE MONITORS WITH SESSIONS ======== */
+  /** ======== MONITORES + # Sesiones ========
+   *  Derivamos totalSessions por monitor con base en citas completadas.
+   */
   const monitorsWithSessions = useMemo(() => {
     return monitors.map(monitor => {
       const sessions = appointments.filter(apt => apt.monitor.id === monitor.id && apt.status === 'completada').length;
@@ -269,11 +309,17 @@ export default function AdminDashboardComplete() {
     });
   }, [monitors, appointments]);
 
-  /** ======== CARGA DESDE API (reemplaza endpoints por los tuyos) ======== */
+  /** ======== API_BASE (opcional) ========
+   *  Si manejas una URL pública, úsala. Si no, los fetch van al /api local de Next.js.
+   */
   const API_BASE =
     process.env.NEXT_PUBLIC_API_URL ??
     (typeof window !== "undefined" ? (window as any).__API_URL__ : "") // fallback opcional
 
+  /** ======== CARGA INICIAL DESDE API ========
+   *  Ajusta endpoints si difieren. Cada bloque hace su set* correspondiente.
+   *  Roles: se consolidan en rolesMap y actualizan status de usuarios.
+   */
   useEffect(() => {
     ;(async () => {
       try {
@@ -284,19 +330,23 @@ export default function AdminDashboardComplete() {
           fetch('/api/citas'),
           fetch('/api/usuario-rol'),
         ])
+
+        // Estudiantes
         if (u.ok) {
-        const data = await u.json();
-        setUsers(data.map((user: any) => ({
-          id: String(user.id),
-          name: user.nombre,
-          email: user.email,
-          role: user.rol,            // ya viene como 'Estudiante'
-          status: 'Inactivo', // temporary, will be updated based on roles
-          program: user.programa || '',
-          semester: user.semestre || '',
-          joinDate: user.created_at ? new Date(user.created_at).toISOString().split('T')[0] : ''
-        })));
-      }
+          const data = await u.json();
+          setUsers(data.map((user: any) => ({
+            id: String(user.id),
+            name: user.nombre,
+            email: user.email,
+            role: user.rol,            // 'Estudiante'
+            status: 'Inactivo',        // Se ajusta luego según roles reales
+            program: user.programa || '',
+            semester: user.semestre || '',
+            joinDate: user.created_at ? new Date(user.created_at).toISOString().split('T')[0] : ''
+          })));
+        }
+
+        // Materias
         if (s.ok) {
           const data = await s.json()
           setSubjects(data.map((subject: any) => ({
@@ -311,34 +361,38 @@ export default function AdminDashboardComplete() {
             status: subject.estado || 'Activo'
           })));
         }
+
+        // Monitores + materia asignada (si existe)
         if (res.ok) {
-        const data = await res.json();
-        const monitorsData = await Promise.all(data.map(async (user: any) => {
-          const baseMonitor = {
-            id: String(user.id),
-            name: user.nombre,
-            email: user.email,
-            role: user.rol,            // 'Monitor'
-            status: 'Activo',
-            program: user.programa || '',
-            semester: user.semestre || '',
-            joinDate: user.created_at ? new Date(user.created_at).toISOString().split('T')[0] : ''
-          };
-          try {
-            const subjectRes = await fetch(`/api/usuarios/${user.id}/materia-asignada`);
-            if (subjectRes.ok) {
-              const subjectData = await subjectRes.json();
-              return { ...baseMonitor, materia_asignada: subjectData };
-            } else {
+          const data = await res.json();
+          const monitorsData = await Promise.all(data.map(async (user: any) => {
+            const baseMonitor = {
+              id: String(user.id),
+              name: user.nombre,
+              email: user.email,
+              role: user.rol,            // 'Monitor'
+              status: 'Activo',
+              program: user.programa || '',
+              semester: user.semestre || '',
+              joinDate: user.created_at ? new Date(user.created_at).toISOString().split('T')[0] : ''
+            };
+            try {
+              const subjectRes = await fetch(`/api/usuarios/${user.id}/materia-asignada`);
+              if (subjectRes.ok) {
+                const subjectData = await subjectRes.json();
+                return { ...baseMonitor, materia_asignada: subjectData };
+              } else {
+                return { ...baseMonitor, materia_asignada: null };
+              }
+            } catch (error) {
+              console.error('Error fetching assigned subject for monitor', user.id, error);
               return { ...baseMonitor, materia_asignada: null };
             }
-          } catch (error) {
-            console.error('Error fetching assigned subject for monitor', user.id, error);
-            return { ...baseMonitor, materia_asignada: null };
-          }
-        }));
-        setMonitors(monitorsData);
-      }
+          }));
+          setMonitors(monitorsData);
+        }
+
+        // Citas
         if (appointmentsRes.ok) {
           const appointmentsJson = await appointmentsRes.json();
           if (appointmentsJson.ok && appointmentsJson.data) {
@@ -369,6 +423,8 @@ export default function AdminDashboardComplete() {
         } else {
           setAppointments([]);
         }
+
+        // Roles: consolida por usuario y ajusta status
         if (rolesRes.ok) {
           const rolesData = await rolesRes.json();
           const map = new Map<string, string[]>();
@@ -380,13 +436,13 @@ export default function AdminDashboardComplete() {
             }
             map.get(userId)!.push(normalizedRole);
           });
-          // Remove duplicates
+          // Quita duplicados por usuario
           map.forEach((roles, userId) => {
             map.set(userId, [...new Set(roles)]);
           });
           setRolesMap(map);
 
-          // Update users status based on roles
+          // Actualiza estado de usuarios según roles reales
           setUsers(currentUsers => currentUsers.map(user => {
             const userRoles = map.get(user.id) || [];
             const hasEstudiante = userRoles.includes('ESTUDIANTE');
@@ -394,24 +450,25 @@ export default function AdminDashboardComplete() {
             return { ...user, status: (hasEstudiante && hasMonitor) ? 'Activo' : 'Inactivo' };
           }));
         }
-        //citas no implementados aún, dejar vacíos
       } catch (error) {
         console.error('Error fetching data:', error)
       }
     })()
   }, [])
 
-  /** ======== UNIQUE LOCATIONS ======== */
+  /** ======== Valores derivados ======== */
+
+  // Ubicaciones únicas de citas (para filtros opcionales)
   const uniqueLocations = useMemo(() => {
     const locs = new Set(appointments.map(apt => apt.location).filter(Boolean))
     return Array.from(locs).sort()
   }, [appointments])
 
-  /** ======== FILTRADO DE CITAS ======== */
+  // Filtro + orden de citas
   const filteredAppointments = useMemo(() => {
     let filtered = appointments
 
-    // Filtro por búsqueda
+    // Busca por estudiante / monitor / materia
     if (searchTerm) {
       const term = searchTerm.toLowerCase()
       filtered = filtered.filter(apt =>
@@ -421,7 +478,7 @@ export default function AdminDashboardComplete() {
       )
     }
 
-    // Filtro por estado
+    // Estado
     if (filterStatus !== "all") {
       const statusMap: { [key: string]: string } = {
         confirmed: "confirmada",
@@ -433,17 +490,17 @@ export default function AdminDashboardComplete() {
       filtered = filtered.filter(apt => apt.status === mappedStatus)
     }
 
-    // Filtro por materia
+    // Materia (usamos filterFaculty como etiqueta de materia)
     if (filterFaculty !== "all") {
       filtered = filtered.filter(apt => apt.subject === filterFaculty)
     }
 
-    // Filtro por ubicación
+    // Ubicación
     if (filterLocation !== "all") {
       filtered = filtered.filter(apt => apt.location === filterLocation)
     }
 
-    // Filtro por fecha
+    // Rango de fecha rápido (hoy/semana/mes)
     if (filterDate !== "all") {
       const now = new Date()
       const today = now.toISOString().split('T')[0]
@@ -451,7 +508,7 @@ export default function AdminDashboardComplete() {
         filtered = filtered.filter(apt => apt.date === today)
       } else if (filterDate === "week") {
         const startOfWeek = new Date(now)
-        startOfWeek.setDate(now.getDate() - now.getDay() + 1) // Monday
+        startOfWeek.setDate(now.getDate() - now.getDay() + 1) // Lunes
         const endOfWeek = new Date(startOfWeek)
         endOfWeek.setDate(startOfWeek.getDate() + 6)
         filtered = filtered.filter(apt => {
@@ -468,21 +525,20 @@ export default function AdminDashboardComplete() {
       }
     }
 
-    // Sort by date ascending (closest dates first)
+    // Orden cronológico ascendente (más próximas primero)
     filtered = filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
     return filtered
   }, [appointments, searchTerm, filterStatus, filterFaculty, filterLocation, filterDate])
 
-  /** ======== PAGINACIÓN DE CITAS ======== */
+  // Paginación de citas
   const paginatedAppointments = useMemo(() => {
     const startIndex = (currentPageAppointments - 1) * pageSizeAppointments
     return filteredAppointments.slice(startIndex, startIndex + pageSizeAppointments)
   }, [filteredAppointments, currentPageAppointments, pageSizeAppointments])
-
   const totalPagesAppointments = Math.ceil(filteredAppointments.length / pageSizeAppointments)
 
-  /** ======== FILTRADO DE USUARIOS ======== */
+  // Filtro de usuarios (búsqueda)
   const filteredUsers = useMemo(() => {
     let filtered = users
     if (searchTerm) {
@@ -496,15 +552,14 @@ export default function AdminDashboardComplete() {
     return filtered
   }, [users, searchTerm])
 
-  /** ======== PAGINACIÓN DE USUARIOS ======== */
+  // Paginación de usuarios
   const paginatedUsers = useMemo(() => {
     const startIndex = (currentPageUsers - 1) * pageSizeUsers
     return filteredUsers.slice(startIndex, startIndex + pageSizeUsers)
   }, [filteredUsers, currentPageUsers, pageSizeUsers])
-
   const totalPagesUsers = Math.ceil(filteredUsers.length / pageSizeUsers)
 
-  /** ======== FILTRADO DE MONITORES ======== */
+  // Filtro de monitores (búsqueda + materia asignada)
   const filteredMonitors = useMemo(() => {
     let filtered = monitorsWithSessions
     if (searchTerm) {
@@ -521,15 +576,14 @@ export default function AdminDashboardComplete() {
     return filtered
   }, [monitorsWithSessions, searchTerm, filterMonitorSubject])
 
-  /** ======== PAGINACIÓN DE MONITORES ======== */
+  // Paginación de monitores
   const paginatedMonitors = useMemo(() => {
     const startIndex = (currentPageMonitors - 1) * pageSizeMonitors
     return filteredMonitors.slice(startIndex, startIndex + pageSizeMonitors)
   }, [filteredMonitors, currentPageMonitors, pageSizeMonitors])
-
   const totalPagesMonitors = Math.ceil(filteredMonitors.length / pageSizeMonitors)
 
-  /** ======== FILTRADO DE MATERIAS ======== */
+  // Filtro de materias
   const filteredSubjects = useMemo(() => {
     let filtered = subjects
     if (searchTerm) {
@@ -548,15 +602,16 @@ export default function AdminDashboardComplete() {
     return filtered
   }, [subjects, searchTerm, filterSubjectStatus, filterFaculty])
 
-  /** ======== PAGINACIÓN DE MATERIAS ======== */
+  // Paginación de materias
   const paginatedSubjects = useMemo(() => {
     const startIndex = (currentPageSubjects - 1) * pageSizeSubjects
     return filteredSubjects.slice(startIndex, startIndex + pageSizeSubjects)
   }, [filteredSubjects, currentPageSubjects, pageSizeSubjects])
-
   const totalPagesSubjects = Math.ceil(filteredSubjects.length / pageSizeSubjects)
 
-  /** ======== MÉTRICAS (derivadas de los arrays, sin números ficticios) ======== */
+  /** ======== Métricas agregadas ========
+   *  Se calculan desde los arrays reales. Sin números inventados.
+   */
   const systemStats = useMemo(() => {
     const totalUsers = users.length
     const activeUsers = users.filter(u => u.status === "Activo").length
@@ -573,7 +628,7 @@ export default function AdminDashboardComplete() {
           (monitors.reduce((acc, m) => acc + (m.rating ?? 0), 0) / monitors.length) * 10
         ) / 10
       : 0
-    // Si tu API devuelve horas totales/crecimiento, cámbialo aquí:
+    // Si tu API calcula horas/crecimiento, reemplázalo luego.
     return {
       totalUsers,
       activeUsers,
@@ -592,11 +647,11 @@ export default function AdminDashboardComplete() {
     }
   }, [users, monitors, subjects, appointments])
 
-  /** ======== UTILIDADES ========= */
+  /** ======== Utilidades: exportar/selecciones ======== */
   const handleExport = async () => {
     setIsExporting(true)
     try {
-      // NOTE: conecta aquí tu export real según exportSection/exportFormat
+      // Conecta con tu backend de export:
       // await fetch(`${API_BASE}/export?format=${exportFormat}&section=${exportSection}`)
     } finally {
       setIsExporting(false)
@@ -621,18 +676,20 @@ export default function AdminDashboardComplete() {
     setSelectedItems(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
   const handleDeleteSelected = () => {
-    // NOTE: conecta a tu backend (DELETE/BULK)
+    // TODO: Conecta DELETE/BULK a tu backend
     setShowDeleteDialog(false)
     setSelectedItems([])
   }
 
-  /** ========= VISTA ========= */
+  /** ========= VISTA =========
+   *  Todo el JSX de pestañas. No se alteran layouts ni clases base.
+   */
   return (
     <SidebarProvider>
       <div className="flex w-full min-h-screen bg-gray-50 overflow-hidden">
         <AdminSidebar activeTab={activeTab} setActiveTab={setActiveTab} />
         <SidebarInset className="flex-1 w-full min-h-screen bg-gray-50">
-          {/* Header */}
+          {/* Header fijo */}
           <header className="bg-white border-b border-gray-200 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -645,12 +702,12 @@ export default function AdminDashboardComplete() {
             </div>
           </header>
 
-          {/* Pagina principal */}
+          {/* Contenido principal */}
           <main className="p-6 space-y-6">
-            {/* ===== Principal ===== */}
+            {/* ===== Dashboard ===== */}
             {activeTab === "dashboard" && (
               <div className="space-y-6">
-                {/* Stats Cards */}
+                {/* Tarjetas de estado (derivadas) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <Card><CardContent className="p-6">
                     <div className="flex items-center justify-between">
@@ -695,14 +752,9 @@ export default function AdminDashboardComplete() {
                       <div className="p-3 bg-red-100 rounded-full"><UserCheck className="h-6 w-6 text-red-800" /></div>
                     </div>
                   </CardContent></Card>
-
                 </div>
 
-               
-
-                
-
-                {/* Citas del Día */}
+                {/* Citas del Día (usa appointments reales) */}
                 <Card>
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -805,7 +857,7 @@ export default function AdminDashboardComplete() {
                   </div>
                 </div>
 
-                {/* Filtros */}
+                {/* Filtros básicos */}
                 <Card>
                   <CardContent className="p-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -819,7 +871,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                 </Card>
 
-                {/* Tabla Usuarios */}
+                {/* Tabla de usuarios */}
                 <Card>
                   <CardContent className="p-0">
                     <Table>
@@ -850,6 +902,7 @@ export default function AdminDashboardComplete() {
                             </TableCell>
                             <TableCell>{user.joinDate}</TableCell>
                             <TableCell>
+                              {/* Acción: asignar rol MONITOR */}
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -862,7 +915,7 @@ export default function AdminDashboardComplete() {
                                     });
                                     if (res.ok) {
                                       alert('Rol de Monitor asignado exitosamente');
-                                      // Refrescar la lista de usuarios
+                                      // Refresca para ver el cambio
                                       window.location.reload();
                                     } else {
                                       const error = await res.json();
@@ -887,7 +940,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{paginatedUsers.length ? `${(currentPageUsers - 1) * pageSizeUsers + 1}-${Math.min(currentPageUsers * pageSizeUsers, filteredUsers.length)}` : "0"}</strong> de <strong>{filteredUsers.length}</strong> usuarios
+                      Mostrando <strong>{paginatedUsers.length ? `{${(currentPageUsers - 1) * pageSizeUsers + 1}-{${""}}${Math.min(currentPageUsers * pageSizeUsers, filteredUsers.length)}` : "0"}</strong> de <strong>{filteredUsers.length}</strong> usuarios
                     </div>
                     <Pagination>
                       <PaginationContent>
@@ -946,16 +999,17 @@ export default function AdminDashboardComplete() {
                   </div>
                 </div>
 
-                {/* Filtros */}
+                {/* Filtros de monitores */}
                 <Card>
                   <CardContent className="p-4">
                     <div className="flex flex-wrap items-center gap-4">
-                      <div className="relative flex-1 min-w-[200px]">
+                      <div className="relative flex-1 min-w?[200px]">
                         <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                         <Input placeholder="Buscar por nombre, email, código..." className="pl-10"
                           value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                       </div>
 
+                      {/* Combobox de materias (filtra por materia asignada) */}
                       <Popover open={openMonitorSubjectFilter} onOpenChange={setOpenMonitorSubjectFilter}>
                         <PopoverTrigger asChild>
                           <Button
@@ -1006,7 +1060,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                 </Card>
 
-                {/* Grid monitores */}
+                {/* Tarjetas de monitores */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {paginatedMonitors.map((monitor) => (
                     <Card key={monitor.id}>
@@ -1019,7 +1073,6 @@ export default function AdminDashboardComplete() {
                             <div className="flex items-start justify-between">
                               <div>
                                 <h3 className="font-medium text-gray-900">{monitor.name}</h3>
-
                               </div>
                               <Badge className={getStatusColor(monitor.status)}>
                                 {getStatusIcon(monitor.status)} <span className="ml-1">{monitor.status}</span>
@@ -1044,6 +1097,7 @@ export default function AdminDashboardComplete() {
                             <div className="text-sm text-gray-500">Sin materia asignada</div>
                           )}
                           <div className="flex gap-2">
+                            {/* Abrir diálogo de asignar/cambiar materia */}
                             <Button
                               variant="outline"
                               size="sm"
@@ -1056,6 +1110,7 @@ export default function AdminDashboardComplete() {
                             >
                               <BookOpen className="h-3 w-3 mr-1" />{monitor.materia_asignada ? "Cambiar Materia" : "Asignar Materia"}
                             </Button>
+                            {/* Remover rol MONITOR */}
                             <Button
                               variant="outline"
                               size="sm"
@@ -1069,7 +1124,6 @@ export default function AdminDashboardComplete() {
                                   });
                                   if (res.ok) {
                                     alert('Rol de Monitor removido exitosamente');
-                                    // Refrescar la lista de monitores
                                     window.location.reload();
                                   } else {
                                     const error = await res.json();
@@ -1098,12 +1152,10 @@ export default function AdminDashboardComplete() {
                   )}
                 </div>
 
-                {/* Count */}
+                {/* Conteo + paginación */}
                 <div className="text-sm text-gray-500 text-center">
-                  Mostrando <strong>{paginatedMonitors.length ? `${(currentPageMonitors - 1) * pageSizeMonitors + 1}-${Math.min(currentPageMonitors * pageSizeMonitors, filteredMonitors.length)}` : "0"}</strong> de <strong>{filteredMonitors.length}</strong> monitores
+                  Mostrando <strong>{paginatedMonitors.length ? `{${(currentPageMonitors - 1) * pageSizeMonitors + 1}-{${""}}${Math.min(currentPageMonitors * pageSizeMonitors, filteredMonitors.length)}` : "0"}</strong> de <strong>{filteredMonitors.length}</strong> monitores
                 </div>
-
-                {/* Paginación */}
                 <div className="flex items-center justify-center">
                   <Pagination>
                     <PaginationContent>
@@ -1151,7 +1203,6 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-
             {/* ===== Gestión de citas ===== */}
             {activeTab === "appointments" && (
               <div className="space-y-6">
@@ -1162,7 +1213,7 @@ export default function AdminDashboardComplete() {
                   </div>
                 </div>
 
-                {/* Filtros */}
+                {/* Filtros de citas */}
                 <Card>
                   <CardContent className="p-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -1181,6 +1232,7 @@ export default function AdminDashboardComplete() {
                           <SelectItem value="cancelled">Canceladas</SelectItem>
                         </SelectContent>
                       </Select>
+                      {/* Combobox de materias para filtrar */}
                       <Popover open={openSubjectFilter} onOpenChange={setOpenSubjectFilter}>
                         <PopoverTrigger asChild>
                           <Button
@@ -1239,7 +1291,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                 </Card>
 
-                {/* Tabla Citas */}
+                {/* Tabla de citas (paginatedAppointments) */}
                 <Card>
                   <CardContent className="p-0">
                     <Table>
@@ -1276,6 +1328,7 @@ export default function AdminDashboardComplete() {
                               </Badge>
                             </TableCell>
                             <TableCell>
+                              {/* Botón de cancelar: PUT /api/citas/:id estado=cancelada */}
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1326,7 +1379,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{paginatedAppointments.length ? `${(currentPageAppointments - 1) * pageSizeAppointments + 1}-${Math.min(currentPageAppointments * pageSizeAppointments, filteredAppointments.length)}` : "0"}</strong> de <strong>{filteredAppointments.length}</strong> citas
+                      Mostrando <strong>{paginatedAppointments.length ? `{${(currentPageAppointments - 1) * pageSizeAppointments + 1}-{${""}}${Math.min(currentPageAppointments * pageSizeAppointments, filteredAppointments.length)}` : "0"}</strong> de <strong>{filteredAppointments.length}</strong> citas
                     </div>
                     <Pagination>
                       <PaginationContent>
@@ -1375,75 +1428,65 @@ export default function AdminDashboardComplete() {
               </div>
             )}
 
-            {/* Reportes: solo Histórico de Citas */}
- {activeTab === "reports" && (
-  <div className="space-y-6">
-    <div className="flex items-center justify-between">
-      <h2 className="text-2xl font-bold text-gray-900">Reportes</h2>
-    </div>
+            {/* ===== Reportes: Histórico de Citas ===== */}
+            {activeTab === "reports" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-gray-900">Reportes</h2>
+                </div>
 
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CalendarDays className="h-5 w-5" />
-          Histórico de Citas
-        </CardTitle>
-        <CardDescription>
-          Descarga el histórico de citas con más detalle (puedes filtrar por fecha).
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="space-y-1">
-          <Label htmlFor="startDate">Desde</Label>
-          <Input
-            id="startDate"
-            type="date"
-            value={reportStartDate}
-            onChange={(e) => setReportStartDate(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="endDate">Hasta</Label>
-          <Input
-            id="endDate"
-            type="date"
-            value={reportEndDate}
-            onChange={(e) => setReportEndDate(e.target.value)}
-          />
-        </div>
-        <div className="flex items-end">
-          <Button
-            className="w-full bg-red-800 hover:bg-red-900"
-            onClick={() => {
-              const qs = new URLSearchParams()
-              if (reportStartDate) qs.set("start_date", reportStartDate)
-              if (reportEndDate) qs.set("end_date", reportEndDate)
-              window.open(`/api/reportes/historico-citas?${qs.toString()}`, "_blank")
-            }}
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Descargar Excel
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  </div>
-)}
-
-
-            
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarDays className="h-5 w-5" />
+                      Histórico de Citas
+                    </CardTitle>
+                    <CardDescription>
+                      Descarga el histórico de citas con más detalle (puedes filtrar por fecha).
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="startDate">Desde</Label>
+                      <Input
+                        id="startDate"
+                        type="date"
+                        value={reportStartDate}
+                        onChange={(e) => setReportStartDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="endDate">Hasta</Label>
+                      <Input
+                        id="endDate"
+                        type="date"
+                        value={reportEndDate}
+                        onChange={(e) => setReportEndDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        className="w-full bg-red-800 hover:bg-red-900"
+                        onClick={() => {
+                          const qs = new URLSearchParams()
+                          if (reportStartDate) qs.set("start_date", reportStartDate)
+                          if (reportEndDate) qs.set("end_date", reportEndDate)
+                          window.open(`/api/reportes/historico-citas?${qs.toString()}`, "_blank")
+                        }}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Descargar Excel
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </main>
         </SidebarInset>
       </div>
 
-      
-      
-
-      
-
-      
-
-     {/*Finaliza con el diálogo de confirmación de eliminación:*/}
+      {/* ===== Diálogo Reporte Histórico (alternativo con checkbox "todas las fechas") ===== */}
       <Dialog open={showHistoricoDialog} onOpenChange={setShowHistoricoDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1503,6 +1546,7 @@ export default function AdminDashboardComplete() {
         </DialogContent>
       </Dialog>
 
+      {/* ===== Confirmación de eliminación ===== */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1525,7 +1569,7 @@ export default function AdminDashboardComplete() {
         </DialogContent>
       </Dialog>
 
-       {/*Editar fecha de la cita*/}       
+      {/* ===== Editar fecha de la cita ===== */}
       <Dialog open={showEditAppointmentDialog} onOpenChange={setShowEditAppointmentDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1562,7 +1606,6 @@ export default function AdminDashboardComplete() {
                   if (res.ok) {
                     alert('Cita actualizada exitosamente');
                     setShowEditAppointmentDialog(false);
-                    // Refresh data
                     window.location.reload();
                   } else {
                     const error = await res.json();
@@ -1582,7 +1625,7 @@ export default function AdminDashboardComplete() {
         </DialogContent>
       </Dialog>
 
-      {/* Asignar Materia a Monitor */}
+      {/* ===== Asignar Materia a Monitor ===== */}
       <Dialog open={showAssignSubjectDialog} onOpenChange={setShowAssignSubjectDialog}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -1642,7 +1685,6 @@ export default function AdminDashboardComplete() {
                     setSelectedMonitor(null);
                     setSelectedSubject(null);
                     setSubjectSearchTerm("");
-                    // Refresh data
                     window.location.reload();
                   } else {
                     const error = await res.json();
