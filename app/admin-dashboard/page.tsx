@@ -896,11 +896,12 @@ export default function AdminDashboardComplete() {
                             </TableCell>
                             <TableCell>{user.joinDate}</TableCell>
                             <TableCell>
-                              {/* Acción: asignar rol MONITOR */}
                               <Button
                                 variant="outline"
                                 size="sm"
+                                disabled={user.status === "Activo"}
                                 onClick={async () => {
+                                  if (user.status === "Activo") return; // Impide la acción si ya está activa.
                                   try {
                                     const res = await fetch(`/api/usuarios/${user.id}/assign-role`, {
                                       method: 'POST',
@@ -909,7 +910,6 @@ export default function AdminDashboardComplete() {
                                     });
                                     if (res.ok) {
                                       alert('Rol de Monitor asignado exitosamente');
-                                      // Refresca para ver el cambio
                                       window.location.reload();
                                     } else {
                                       const error = await res.json();
