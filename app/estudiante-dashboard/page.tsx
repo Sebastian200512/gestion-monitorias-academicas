@@ -1954,7 +1954,6 @@ export default function StudentDashboard() {
                     <DropdownMenuContent>
                       <DropdownMenuItem onClick={() => setFilterStatus("all")}>Todas</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setFilterStatus("confirmada")}>Confirmadas</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setFilterStatus("pendiente")}>Pendientes</DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setFilterStatus("cancelada")}>Canceladas</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

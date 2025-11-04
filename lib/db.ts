@@ -18,8 +18,16 @@ export async function getConnection() {
 
 export async function query(sql: string, params: any[] = []): Promise<any> {
   const conn = await getConnection();
-  const [rows] = await conn.execute(sql, params);
-  return rows;
+  // Use query for commands not supported in prepared statements (e.g., transactions, locks)
+  const unsupportedCommands = ['START TRANSACTION', 'COMMIT', 'ROLLBACK', 'SELECT GET_LOCK', 'SELECT RELEASE_LOCK'];
+  const isUnsupported = unsupportedCommands.some(cmd => sql.toUpperCase().includes(cmd));
+  if (isUnsupported || params.length === 0) {
+    const [rows] = await conn.query(sql, params);
+    return rows;
+  } else {
+    const [rows] = await conn.execute(sql, params);
+    return rows;
+  }
 }
 
 {/*// lib/db.ts
