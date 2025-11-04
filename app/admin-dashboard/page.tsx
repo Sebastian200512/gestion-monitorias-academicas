@@ -70,8 +70,8 @@ function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiv
   }
   // Ítems de menú principales del Admin
   const menuItems = [
-    { title: "Dashboard", icon: Home, value: "dashboard" },
-    { title: "Usuarios", icon: Users, value: "users" },
+    { title: "Inicio", icon: Home, value: "dashboard" },
+    { title: "Estudiantes", icon: Users, value: "users" },
     { title: "Monitores", icon: UserCheck, value: "monitors" },
     { title: "Citas", icon: Calendar, value: "appointments" },
     { title: "Reportes", icon: BarChart3, value: "reports" },
@@ -80,7 +80,7 @@ function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiv
     <Sidebar className="border-r border-gray-200 h-screen">
       <SidebarHeader className="border-b border-gray-200 p-4 bg-red-800">
         <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo"  />
+            <img src="/logo.png" alt="Logo" />
         </div>
       </SidebarHeader>
 
@@ -244,6 +244,7 @@ export default function AdminDashboardComplete() {
   const [historicoEndDate, setHistoricoEndDate] = useState("")
   const [reportStartDate, setReportStartDate] = useState("")
   const [reportEndDate, setReportEndDate] = useState("")
+  const [showWarningDialog, setShowWarningDialog] = useState(false)
 
   // Edición de cita (fecha/estado)
   const [showEditAppointmentDialog, setShowEditAppointmentDialog] = useState(false)
@@ -275,7 +276,7 @@ export default function AdminDashboardComplete() {
   const [currentPageUsers, setCurrentPageUsers] = useState(1)
   const pageSizeUsers = 10
   const [currentPageMonitors, setCurrentPageMonitors] = useState(1)
-  const pageSizeMonitors = 10
+  const pageSizeMonitors = 9
   const [currentPageAppointments, setCurrentPageAppointments] = useState(1)
   const pageSizeAppointments = 10
 
@@ -934,7 +935,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{paginatedUsers.length ? `{${(currentPageUsers - 1) * pageSizeUsers + 1}-{${""}}${Math.min(currentPageUsers * pageSizeUsers, filteredUsers.length)}` : "0"}</strong> de <strong>{filteredUsers.length}</strong> usuarios
+                      Mostrando <strong>{paginatedUsers.length ? `{${(currentPageUsers - 1) * pageSizeUsers + 1}-${Math.min(currentPageUsers * pageSizeUsers, filteredUsers.length)}}` : "0"}</strong> de <strong>{filteredUsers.length}</strong> usuarios
                     </div>
                     <Pagination>
                       <PaginationContent>
@@ -1148,7 +1149,7 @@ export default function AdminDashboardComplete() {
 
                 {/* Conteo + paginación */}
                 <div className="text-sm text-gray-500 text-center">
-                  Mostrando <strong>{paginatedMonitors.length ? `{${(currentPageMonitors - 1) * pageSizeMonitors + 1}-{${""}}${Math.min(currentPageMonitors * pageSizeMonitors, filteredMonitors.length)}` : "0"}</strong> de <strong>{filteredMonitors.length}</strong> monitores
+                  Mostrando <strong>{paginatedMonitors.length ? `{${(currentPageMonitors - 1) * pageSizeMonitors + 1}-${Math.min(currentPageMonitors * pageSizeMonitors, filteredMonitors.length)}}` : "0"}</strong> de <strong>{filteredMonitors.length}</strong> monitores
                 </div>
                 <div className="flex items-center justify-center">
                   <Pagination>
@@ -1221,7 +1222,6 @@ export default function AdminDashboardComplete() {
                         <SelectContent>
                           <SelectItem value="all">Todos los estados</SelectItem>
                           <SelectItem value="confirmed">Confirmadas</SelectItem>
-                          <SelectItem value="pending">Pendientes</SelectItem>
                           <SelectItem value="completed">Completadas</SelectItem>
                           <SelectItem value="cancelled">Canceladas</SelectItem>
                         </SelectContent>
@@ -1373,7 +1373,7 @@ export default function AdminDashboardComplete() {
                   </CardContent>
                   <CardFooter className="flex items-center justify-between border-t p-4">
                     <div className="text-sm text-gray-500">
-                      Mostrando <strong>{paginatedAppointments.length ? `{${(currentPageAppointments - 1) * pageSizeAppointments + 1}-{${""}}${Math.min(currentPageAppointments * pageSizeAppointments, filteredAppointments.length)}` : "0"}</strong> de <strong>{filteredAppointments.length}</strong> citas
+                      Mostrando <strong>{paginatedAppointments.length ? `{${(currentPageAppointments - 1) * pageSizeAppointments + 1}-${Math.min(currentPageAppointments * pageSizeAppointments, filteredAppointments.length)}}` : "0"}</strong> de <strong>{filteredAppointments.length}</strong> citas
                     </div>
                     <Pagination>
                       <PaginationContent>
@@ -1462,10 +1462,14 @@ export default function AdminDashboardComplete() {
                       <Button
                         className="w-full bg-red-800 hover:bg-red-900"
                         onClick={() => {
-                          const qs = new URLSearchParams()
-                          if (reportStartDate) qs.set("start_date", reportStartDate)
-                          if (reportEndDate) qs.set("end_date", reportEndDate)
-                          window.open(`/api/reportes/historico-citas?${qs.toString()}`, "_blank")
+                          if (!reportStartDate && !reportEndDate) {
+                            setShowWarningDialog(true)
+                          } else {
+                            const qs = new URLSearchParams()
+                            if (reportStartDate) qs.set("start_date", reportStartDate)
+                            if (reportEndDate) qs.set("end_date", reportEndDate)
+                            window.open(`/api/reportes/historico-citas?${qs.toString()}`, "_blank")
+                          }
                         }}
                       >
                         <Download className="h-4 w-4 mr-2" />
@@ -1480,56 +1484,23 @@ export default function AdminDashboardComplete() {
         </SidebarInset>
       </div>
 
-      {/* ===== Diálogo Reporte Histórico (alternativo con checkbox "todas las fechas") ===== */}
-      <Dialog open={showHistoricoDialog} onOpenChange={setShowHistoricoDialog}>
+      
+
+      {/* ===== Diálogo de Advertencia: Sin Fechas Seleccionadas ===== */}
+      <Dialog open={showWarningDialog} onOpenChange={setShowWarningDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Descargar Reporte Histórico de Citas</DialogTitle>
+            <DialogTitle>Advertencia</DialogTitle>
             <DialogDescription>
-              Selecciona el rango de fechas para el reporte. Si no seleccionas fechas, se descargarán todas las citas.
+              No has seleccionado fechas para filtrar el reporte. Esto descargará todas las citas históricas. ¿Deseas continuar?
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="all-dates"
-                checked={historicoAllDates}
-                onCheckedChange={(checked) => setHistoricoAllDates(checked as boolean)}
-              />
-              <Label htmlFor="all-dates">Todas las fechas</Label>
-            </div>
-            {!historicoAllDates && (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="start-date">Fecha Inicio</Label>
-                  <Input
-                    id="start-date"
-                    type="date"
-                    value={historicoStartDate}
-                    onChange={(e) => setHistoricoStartDate(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="end-date">Fecha Fin</Label>
-                  <Input
-                    id="end-date"
-                    type="date"
-                    value={historicoEndDate}
-                    onChange={(e) => setHistoricoEndDate(e.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowHistoricoDialog(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setShowWarningDialog(false)}>Cancelar</Button>
             <Button
               onClick={() => {
-                const url = historicoAllDates
-                  ? '/api/reportes/historico-citas'
-                  : `/api/reportes/historico-citas?start_date=${historicoStartDate}&end_date=${historicoEndDate}`;
-                window.open(url, '_blank');
-                setShowHistoricoDialog(false);
+                window.open('/api/reportes/historico-citas', '_blank');
+                setShowWarningDialog(false);
               }}
               className="bg-red-800 hover:bg-red-900"
             >

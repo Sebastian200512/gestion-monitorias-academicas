@@ -1,14 +1,15 @@
+
 {
   "name": "my-app",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=18.17 <23"
+  },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init_monitoagenda",
-    "prisma:studio": "prisma studio"
+    "dev": "next dev", 
+    "build": "next build", 
+    "start": "next start"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

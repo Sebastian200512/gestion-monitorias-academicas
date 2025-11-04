@@ -109,7 +109,7 @@ function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setAct
     { title: "Inicio", icon: Home, value: "home" },
     { title: "Mis Citas", icon: CalendarDays, value: "appointments" },
     { title: "Disponibilidad", icon: Clock, value: "availability" },
-    { title: "Reportes", icon: BarChart3, value: "reports" },
+    { title: "Estadísticas", icon: BarChart3, value: "reports" },
     { title: "Notificaciones", icon: Bell, value: "notifications" },
     { title: "Configuración", icon: Settings, value: "settings" },
   ]
@@ -1081,7 +1081,7 @@ export default function MonitorDashboard() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-gray-600">Citas Esta Semana</p>
+                          <p className="text-sm text-gray-600">Próximas citas</p>
                           <p className="text-2xl font-bold text-gray-900">
                             {(() => {
                               const now = new Date()
@@ -1107,11 +1107,22 @@ export default function MonitorDashboard() {
                         <div>
                           <p className="text-sm text-gray-600">Horas Este Mes</p>
                           <p className="text-2xl font-bold text-gray-900">
-                            {completedAppointments.reduce((sum, apt) => {
-                              const start = parseInt(apt.time.split(':')[0])
-                              const end = parseInt(apt.endTime.split(':')[0])
-                              return sum + (end - start)
-                            }, 0)}
+                            {(() => {
+                              const now = new Date()
+                              const currentMonth = now.getMonth()
+                              const currentYear = now.getFullYear()
+
+                              const monthlyCompletedAppointments = completedAppointments.filter(apt => {
+                                const aptDate = new Date(apt.date)
+                                return aptDate.getMonth() === currentMonth && aptDate.getFullYear() === currentYear
+                              })
+
+                              return monthlyCompletedAppointments.reduce((sum, apt) => {
+                                const start = parseInt(apt.time.split(':')[0])
+                                const end = parseInt(apt.endTime.split(':')[0])
+                                return sum + (end - start)
+                              }, 0)
+                            })()}
                           </p>
                         </div>
                         <Clock className="h-8 w-8 text-amber-600" />
@@ -1611,7 +1622,7 @@ export default function MonitorDashboard() {
               </div>
             )}
 
-            {/* ========= Reportes ========= */}
+            {/* ========= Estadisticas ========= */}
             {activeTab === "reports" && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -1622,7 +1633,7 @@ export default function MonitorDashboard() {
                 </div>
 
                 {/* KPIs */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <Card className="border-l-4 border-l-green-600">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
@@ -1639,7 +1650,7 @@ export default function MonitorDashboard() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-gray-600">Horas Este Mes</p>
+                          <p className="text-sm text-gray-600">Total Horas</p>
                           <p className="text-2xl font-bold text-gray-900">
                             {completedAppointments.reduce((sum, apt) => {
                               const start = parseInt(apt.time.split(':')[0])
@@ -1657,8 +1668,10 @@ export default function MonitorDashboard() {
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-gray-600">Estudiantes Únicos</p>
-                          <p className="text-2xl font-bold text-gray-900">{new Set(appointments.map(apt => apt.student.name)).size}</p>
+                          <p className="text-sm text-gray-600">Total Estudiantes</p>
+                          <p className="text-2xl font-bold text-gray-900">
+                            {new Set(completedAppointments.map(apt => apt.student.name)).size}
+                          </p>
                         </div>
                         <Users className="h-8 w-8 text-red-600" />
                       </div>
