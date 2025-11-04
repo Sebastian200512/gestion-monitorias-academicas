@@ -1333,319 +1333,321 @@ export default function MonitorDashboard() {
             )}
 
             {/* ========= Mis Citas ========= */}
-{activeTab === "appointments" && (
-  <div className="space-y-6">
-    <div className="flex items-center justify-between">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Mis Citas</h2>
-        <p className="text-gray-600">Gestiona tus monitorías asignadas</p>
-      </div>
-    </div>
+            {activeTab === "appointments" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">Mis Citas</h2>
+                    <p className="text-gray-600">Gestiona tus monitorías asignadas</p>
+                  </div>
+                </div>
 
-    {/* Buscador y filtros */}
-    <div className="flex items-center gap-4">
-      <div className="relative flex-1 max-w-md">
-        <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-        <Input
-          placeholder="Buscar por materia..."
-          className="pl-10"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline">
-            <Filter className="h-4 w-4 mr-2" />
-            Filtrar
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => setFilterStatus("all")}>Todas</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setFilterStatus("confirmada")}>Confirmadas</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setFilterStatus("cancelada")}>Canceladas</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+                {/* Buscador y filtros */}
+                <div className="flex items-center gap-4">
+                  <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Buscar por materia..."
+                      className="pl-10"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline">
+                        <Filter className="h-4 w-4 mr-2" />
+                        Filtrar
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => setFilterStatus("all")}>Todas</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setFilterStatus("confirmada")}>Confirmadas</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setFilterStatus("cancelada")}>Canceladas</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
 
-    {/* Tabs de próximas/completadas/todas */}
-    <Tabs defaultValue="upcoming" className="space-y-6">
-      <TabsList className="grid w-full grid-cols-3 max-w-md">
-        <TabsTrigger value="upcoming">Próximas</TabsTrigger>
-        <TabsTrigger value="completed">Completadas</TabsTrigger>
-        <TabsTrigger value="all">Todas</TabsTrigger>
-      </TabsList>
+                {/* Tabs de próximas/completadas/todas */}
+                <Tabs defaultValue="upcoming" className="space-y-6">
+                  <TabsList className="grid w-full grid-cols-3 max-w-md">
+                    <TabsTrigger value="upcoming">Próximas</TabsTrigger>
+                    <TabsTrigger value="completed">Completadas</TabsTrigger>
+                    <TabsTrigger value="all">Todas</TabsTrigger>
+                  </TabsList>
 
-            {/* ==================== Agrupador ==================== */}
-      {(() => {
-        // Tipo para el objeto agrupado
-        interface GroupedAppointment {
-          disponibilidadId: string | number
-          date: string
-          time: string
-          endTime: string
-          subject: string
-          subjectCode: string
-          location: string
-          totalStudents: number
-          statuses: Set<string>
-          appointmentIds: string[]
-        }
+                        {/* ==================== Agrupador ==================== */}
+                  {(() => {
+                    // Tipo para el objeto agrupado
+                    interface GroupedAppointment {
+                      disponibilidadId: string | number
+                      date: string
+                      time: string
+                      endTime: string
+                      subject: string
+                      subjectCode: string
+                      location: string
+                      totalStudents: number
+                      statuses: Set<string>
+                      appointmentIds: string[]
+                    }
 
-        // Agrupamos por disponibilidad_id + fecha_cita
-        const grouped = new Map<string, GroupedAppointment>();
-        appointments.forEach((apt) => {
-          const key = `${apt.disponibilidad_id ?? 'unknown'}_${apt.date}`;
-          if (!grouped.has(key)) {
-            grouped.set(key, {
-              disponibilidadId: apt.disponibilidad_id ?? 0,
-              date: apt.date,
-              time: apt.time,
-              endTime: apt.endTime,
-              subject: apt.subject,
-              subjectCode: apt.subjectCode,
-              location: apt.location,
-              totalStudents: 0,
-              statuses: new Set<string>(),
-              appointmentIds: []
-            });
-          }
-          const g = grouped.get(key)!;
-          g.totalStudents++;
-          g.statuses.add(apt.status);
-          g.appointmentIds.push(apt.id);
-        });
+                    // Agrupamos por disponibilidad_id + fecha_cita
+                    const grouped = new Map<string, GroupedAppointment>();
+                    appointments.forEach((apt) => {
+                      const key = `${apt.disponibilidad_id ?? 'unknown'}_${apt.date}`;
+                      if (!grouped.has(key)) {
+                        grouped.set(key, {
+                          disponibilidadId: apt.disponibilidad_id ?? 0,
+                          date: apt.date,
+                          time: apt.time,
+                          endTime: apt.endTime,
+                          subject: apt.subject,
+                          subjectCode: apt.subjectCode,
+                          location: apt.location,
+                          totalStudents: 0,
+                          statuses: new Set<string>(),
+                          appointmentIds: []
+                        });
+                      }
+                      const g = grouped.get(key)!;
+                      g.totalStudents++;
+                      g.statuses.add(apt.status);
+                      g.appointmentIds.push(apt.id);
+                    });
 
-        const groupedAppointments = Array.from(grouped.values()).map((g: GroupedAppointment) => {
-          let statusSummary = "pendiente";
-          if (g.statuses.size === 1) statusSummary = [...g.statuses][0];
-          else statusSummary = "mixto";
-          return { ...g, statusSummary };
-        });
+                    const groupedAppointments = Array.from(grouped.values()).map((g: GroupedAppointment) => {
+                      let statusSummary = "pendiente";
+                      if (g.statuses.size === 1) statusSummary = [...g.statuses][0];
+                      else statusSummary = "mixto";
+                      return { ...g, statusSummary };
+                    });
 
-        // Filter for today and future dates, sort by date ascending
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const filteredAndSortedGrouped = groupedAppointments
-          .filter(g => new Date(g.date) >= today)
-          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                    // Filter for today and future dates, sort by date ascending
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const filteredAndSortedGrouped = groupedAppointments
+                      .filter(g => new Date(g.date) >= today)
+                      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        const handleCancelGroup = async (g: GroupedAppointment) => {
-          if (!confirm(`Cancelar esta cita para ${g.totalStudents} estudiante(s)?`)) return;
-          try {
-            const res = await fetch(`/api/citas/cancelar-grupo`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                monitor_id: userId,
-                disponibilidad_id: g.disponibilidadId,
-                fecha_cita: g.date
-              })
-            });
-            const data = await res.json();
-            if (!res.ok || !data.ok) throw new Error(data.msg || "Error al cancelar grupo");
-            setAppointments((prev) =>
-              prev.map((a) =>
-                g.appointmentIds.includes(a.id) ? { ...a, status: "cancelada" } : a
-              )
-            );
-            toast({ title: "Cita cancelada", description: "Cita cancelada para todos los estudiantes." });
-          } catch (err) {
-            toast({ title: "Error", description: (err as Error).message, variant: "destructive" });
-          }
-        };
+                    const handleCancelGroup = async (g: GroupedAppointment) => {
+                      if (!confirm(`Cancelar esta cita para ${g.totalStudents} estudiante(s)?`)) return;
+                      try {
+                        const res = await fetch(`/api/citas/cancelar-grupo`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            monitor_id: userId,
+                            disponibilidad_id: g.disponibilidadId,
+                            fecha_cita: g.date
+                          })
+                        });
+                        const data = await res.json();
+                        if (!res.ok || !data.ok) throw new Error(data.msg || "Error al cancelar grupo");
+                        setAppointments((prev) =>
+                          prev.map((a) =>
+                            g.appointmentIds.includes(a.id) ? { ...a, status: "cancelada" } : a
+                          )
+                        );
+                        toast({ title: "Cita cancelada", description: "Cita cancelada para todos los estudiantes." });
+                      } catch (err) {
+                        toast({ title: "Error", description: (err as Error).message, variant: "destructive" });
+                      }
+                    };
 
-        const handleCompleteGroup = async (g: GroupedAppointment) => {
-          if (!confirm(`Marcar como completada para ${g.totalStudents} estudiante(s)?`)) return;
-          try {
-            const res = await fetch(`/api/citas/completar-grupo`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                monitor_id: userId,
-                disponibilidad_id: g.disponibilidadId,
-                fecha_cita: g.date
-              })
-            });
-            const data = await res.json();
-            if (!res.ok || !data.ok) throw new Error(data.msg || "Error al completar grupo");
-            setAppointments((prev) =>
-              prev.map((a) =>
-                g.appointmentIds.includes(a.id) ? { ...a, status: "completada" } : a
-              )
-            );
-            toast({ title: "Cita completada", description: "Cita marcada como completada para todos." });
-          } catch (err) {
-            toast({ title: "Error", description: (err as Error).message, variant: "destructive" });
-          }
-        };
+                    const handleCompleteGroup = async (g: GroupedAppointment) => {
+                      if (!confirm(`Marcar como completada para ${g.totalStudents} estudiante(s)?`)) return;
+                      try {
+                        const res = await fetch(`/api/citas/completar-grupo`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            monitor_id: userId,
+                            disponibilidad_id: g.disponibilidadId,
+                            fecha_cita: g.date
+                          })
+                        });
+                        const data = await res.json();
+                        if (!res.ok || !data.ok) throw new Error(data.msg || "Error al completar grupo");
+                        setAppointments((prev) =>
+                          prev.map((a) =>
+                            g.appointmentIds.includes(a.id) ? { ...a, status: "completada" } : a
+                          )
+                        );
+                        toast({ title: "Cita completada", description: "Cita marcada como completada para todos." });
+                      } catch (err) {
+                        toast({ title: "Error", description: (err as Error).message, variant: "destructive" });
+                      }
+                    };
 
-        return (
-          <>
-            {/* ======== Próximas ======== */}
-            <TabsContent value="upcoming" className="space-y-4">
-              {filteredAndSortedGrouped.length === 0 ? (
-                <Card>
-                  <CardContent className="p-8 text-center">
-                    <CalendarDays className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes citas próximas</h3>
-                    <p className="text-gray-500 mb-4">No hay monitorías programadas</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                filteredAndSortedGrouped.map((g) => (
-                  <Card key={`${g.disponibilidadId}_${g.date}`}>
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-medium text-gray-900">
-                            {g.subject} ({g.subjectCode})
-                          </h3>
-                          <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              {new Date(g.date).toLocaleDateString("es-ES")}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
-                              {g.time} - {g.endTime}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-4 w-4" />
-                              {g.location}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Users className="h-4 w-4" />
-                              {g.totalStudents} estudiante(s)
-                            </span>
-                          </div>
-                        </div>
+                    return (
+                      <>
+                        {/* ======== Próximas ======== */}
+                        <TabsContent value="upcoming" className="space-y-4">
+                          {filteredAndSortedGrouped.length === 0 ? (
+                            <Card>
+                              <CardContent className="p-8 text-center">
+                                <CalendarDays className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                                <h3 className="text-lg font-medium text-gray-900 mb-2">No tienes citas próximas</h3>
+                                <p className="text-gray-500 mb-4">No hay monitorías programadas</p>
+                              </CardContent>
+                            </Card>
+                          ) : (
+                            filteredAndSortedGrouped.map((g) => (
+                              <Card key={`${g.disponibilidadId}_${g.date}`}>
+                                <CardContent className="p-6">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <h3 className="font-medium text-gray-900">
+                                        {g.subject} ({g.subjectCode})
+                                      </h3>
+                                      <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
+                                        <span className="flex items-center gap-1">
+                                          <Calendar className="h-4 w-4" />
+                                          {new Date(g.date).toLocaleDateString("es-ES")}
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                          <Clock className="h-4 w-4" />
+                                          {g.time} - {g.endTime}
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                          <MapPin className="h-4 w-4" />
+                                          {g.location}
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                          <Users className="h-4 w-4" />
+                                          {g.totalStudents} estudiante(s)
+                                        </span>
+                                      </div>
+                                    </div>
 
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            className={
-                              g.statusSummary === "confirmada"
-                                ? "bg-amber-600 hover:bg-amber-700"
-                                : g.statusSummary === "cancelada"
-                                ? "bg-red-600 hover:bg-red-700"
-                                : g.statusSummary === "completada"
-                                ? "bg-green-600 hover:bg-green-700"
-                                : "bg-gray-500 hover:bg-gray-600"
-                            }
-                          >
-                            {g.statusSummary}
-                          </Badge>
+                                    <div className="flex items-center gap-2">
+                                      <Badge
+                                        className={
+                                          g.statusSummary === "confirmada"
+                                            ? "bg-amber-600 hover:bg-amber-700"
+                                            : g.statusSummary === "cancelada"
+                                            ? "bg-red-600 hover:bg-red-700"
+                                            : g.statusSummary === "completada"
+                                            ? "bg-green-600 hover:bg-green-700"
+                                            : "bg-gray-500 hover:bg-gray-600"
+                                        }
+                                      >
+                                        {g.statusSummary}
+                                      </Badge>
 
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleCompleteGroup(g)}>
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Completar cita
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleCancelGroup(g)}>
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Cancelar cita
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </TabsContent>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="outline" size="sm">
+                                            <MoreHorizontal className="h-4 w-4" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        {g.statusSummary !== "completada" && g.statusSummary !== "cancelada" && (
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => handleCompleteGroup(g)}>
+                                              <CheckCircle className="h-4 w-4 mr-2" />
+                                              Completar cita
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleCancelGroup(g)}>
+                                              <XCircle className="h-4 w-4 mr-2" />
+                                              Cancelar cita
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        )}
+                                      </DropdownMenu>
+                                    </div>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))
+                          )}
+                        </TabsContent>
 
-            {/* ======== Completadas ======== */}
-            <TabsContent value="completed" className="space-y-4">
-              {groupedAppointments
-                .filter((g) => g.statusSummary === "completada")
-                .map((g) => (
-                  <Card key={`${g.disponibilidadId}_${g.date}`} className="opacity-90">
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h3 className="font-medium text-gray-900">
-                            {g.subject} ({g.subjectCode})
-                          </h3>
-                          <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              {new Date(g.date).toLocaleDateString("es-ES")}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
-                              {g.time} - {g.endTime}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Users className="h-4 w-4" />
-                              {g.totalStudents} estudiante(s)
-                            </span>
-                          </div>
-                        </div>
-                        <Badge className="bg-green-600 hover:bg-green-700">
-                          completada
-                        </Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-            </TabsContent>
+                        {/* ======== Completadas ======== */}
+                        <TabsContent value="completed" className="space-y-4">
+                          {groupedAppointments
+                            .filter((g) => g.statusSummary === "completada")
+                            .map((g) => (
+                              <Card key={`${g.disponibilidadId}_${g.date}`} className="opacity-90">
+                                <CardContent className="p-6">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <h3 className="font-medium text-gray-900">
+                                        {g.subject} ({g.subjectCode})
+                                      </h3>
+                                      <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
+                                        <span className="flex items-center gap-1">
+                                          <Calendar className="h-4 w-4" />
+                                          {new Date(g.date).toLocaleDateString("es-ES")}
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                          <Clock className="h-4 w-4" />
+                                          {g.time} - {g.endTime}
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                          <Users className="h-4 w-4" />
+                                          {g.totalStudents} estudiante(s)
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <Badge className="bg-green-600 hover:bg-green-700">
+                                      completada
+                                    </Badge>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))}
+                        </TabsContent>
 
-            {/* ======== Todas ======== */}
-            <TabsContent value="all" className="space-y-4">
-              {groupedAppointments.map((g) => (
-                <Card key={`${g.disponibilidadId}_${g.date}`}>
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-medium text-gray-900">
-                          {g.subject} ({g.subjectCode})
-                        </h3>
-                        <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-4 w-4" />
-                            {new Date(g.date).toLocaleDateString("es-ES")}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-4 w-4" />
-                            {g.time} - {g.endTime}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Users className="h-4 w-4" />
-                            {g.totalStudents} estudiante(s)
-                          </span>
-                        </div>
-                      </div>
-                      <Badge
-                        className={
-                          g.statusSummary === "confirmada"
-                            ? "bg-amber-600 hover:bg-amber-700"
-                            : g.statusSummary === "cancelada"
-                            ? "bg-red-600 hover:bg-red-700"
-                            : g.statusSummary === "completada"
-                            ? "bg-green-600 hover:bg-green-700"
-                            : "bg-gray-500 hover:bg-gray-600"
-                        }
-                      >
-                        {g.statusSummary}
-                      </Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-          </>
-        );
-      })()}
-    </Tabs>
-  </div>
-)}
+                        {/* ======== Todas ======== */}
+                        <TabsContent value="all" className="space-y-4">
+                          {groupedAppointments.map((g) => (
+                            <Card key={`${g.disponibilidadId}_${g.date}`}>
+                              <CardContent className="p-6">
+                                <div className="flex items-start justify-between">
+                                  <div>
+                                    <h3 className="font-medium text-gray-900">
+                                      {g.subject} ({g.subjectCode})
+                                    </h3>
+                                    <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
+                                      <span className="flex items-center gap-1">
+                                        <Calendar className="h-4 w-4" />
+                                        {new Date(g.date).toLocaleDateString("es-ES")}
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-4 w-4" />
+                                        {g.time} - {g.endTime}
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <Users className="h-4 w-4" />
+                                        {g.totalStudents} estudiante(s)
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <Badge
+                                    className={
+                                      g.statusSummary === "confirmada"
+                                        ? "bg-amber-600 hover:bg-amber-700"
+                                        : g.statusSummary === "cancelada"
+                                        ? "bg-red-600 hover:bg-red-700"
+                                        : g.statusSummary === "completada"
+                                        ? "bg-green-600 hover:bg-green-700"
+                                        : "bg-gray-500 hover:bg-gray-600"
+                                    }
+                                  >
+                                    {g.statusSummary}
+                                  </Badge>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </TabsContent>
+                      </>
+                    );
+                  })()}
+                </Tabs>
+              </div>
+            )}
 
 
             {/* ========= Disponibilidades ========= */}
