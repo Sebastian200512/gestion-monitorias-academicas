@@ -117,7 +117,7 @@ function MonitorSidebar({ activeTab, setActiveTab }: { activeTab: string; setAct
   return (
     <Sidebar className="border-r border-gray-200">
       {/* Encabezado del sidebar (branding del módulo) */}
-      <SidebarHeader className="border-b border-gray-200 p-4 bg-red-800">
+      <SidebarHeader className="border-b border-gray-200 p-4 ">
               <div className="flex items-center gap-3">
                   <img src="/logo.png" alt="Logo"  />
               </div>

@@ -78,7 +78,7 @@ function AdminSidebar({ activeTab, setActiveTab }: { activeTab: string; setActiv
   ]
   return (
     <Sidebar className="border-r border-gray-200 h-screen">
-      <SidebarHeader className="border-b border-gray-200 p-4 bg-red-800">
+      <SidebarHeader className="border-b border-gray-200 p-4 ">
         <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Logo" />
         </div>
